@@ -13,45 +13,7 @@ import matplotlib.pyplot as plt
 from torch.optim.optimizer import Optimizer, required
 
 
-class SGD(Optimizer):
-    r"""Implements stochastic gradient descent (optionally with momentum).
-    Nesterov momentum is based on the formula from
-    `On the importance of initialization and momentum in deep learning`__.
-    Args:
-        params (iterable): iterable of parameters to optimize or dicts defining
-            parameter groups
-        lr (float): learning rate
-        momentum (float, optional): momentum factor (default: 0)
-        weight_decay (float, optional): weight decay (L2 penalty) (default: 0)
-        dampening (float, optional): dampening for momentum (default: 0)
-        nesterov (bool, optional): enables Nesterov momentum (default: False)
-    Example:
-        >>> optimizer = torch.optim.SGD(model.parameters(), lr=0.1, momentum=0.9)
-        >>> optimizer.zero_grad()
-        >>> loss_fn(model(input), target).backward()
-        >>> optimizer.step()
-    __ http://www.cs.toronto.edu/%7Ehinton/absps/momentum.pdf
-    .. note::
-        The implementation of SGD with Momentum/Nesterov subtly differs from
-        Sutskever et. al. and implementations in some other frameworks.
-        Considering the specific case of Momentum, the update can be written as
-        .. math::
-            \begin{aligned}
-                v_{t+1} & = \mu * v_{t} + g_{t+1}, \\
-                p_{t+1} & = p_{t} - \text{lr} * v_{t+1},
-            \end{aligned}
-        where :math:`p`, :math:`g`, :math:`v` and :math:`\mu` denote the
-        parameters, gradient, velocity, and momentum respectively.
-        This is in contrast to Sutskever et. al. and
-        other frameworks which employ an update of the form
-        .. math::
-            \begin{aligned}
-                v_{t+1} & = \mu * v_{t} + \text{lr} * g_{t+1}, \\
-                p_{t+1} & = p_{t} - v_{t+1}.
-            \end{aligned}
-        The Nesterov version is analogously modified.
-    """
-
+class NGD(Optimizer):
     def __init__(self, params, lr=required, momentum=0, dampening=0,
                  weight_decay=0, nesterov=False):
         if lr is not required and lr < 0.0:
@@ -65,17 +27,18 @@ class SGD(Optimizer):
                         weight_decay=weight_decay, nesterov=nesterov)
         if nesterov and (momentum <= 0 or dampening != 0):
             raise ValueError("Nesterov momentum requires a momentum and zero dampening")
-        super(SGD, self).__init__(params, defaults)
+        super(NGD, self).__init__(params, defaults)
 
     def __setstate__(self, state):
-        super(SGD, self).__setstate__(state)
+        super(NGD, self).__setstate__(state)
         for group in self.param_groups:
             group.setdefault('nesterov', False)
 
     @torch.no_grad()
-    def step(self, closure=None):
+    def step(self, whitening_matrices = None, closure=None):
         """Performs a single optimization step.
         Arguments:
+            whitening_matrices(optional): dictionary of whitening matrices
             closure (callable, optional): A closure that reevaluates the model
                 and returns the loss.
         """
@@ -89,11 +52,21 @@ class SGD(Optimizer):
             momentum = group['momentum']
             dampening = group['dampening']
             nesterov = group['nesterov']
+            whitening_matrices_list = []
+            if whitening_matrices != None:
+                whitening_matrices_list_values = list(whitening_matrices.values())
+                whitening_matrices_list_keys = list(whitening_matrices.keys())
 
-            for p in group['params']:
+            for idx, p in enumerate(group['params']):
                 if p.grad is None:
                     continue
                 d_p = p.grad
+                if whitening_matrices_list:
+                    #print('idx = {}, whitening_matrices[{}].shape, whitening_matrices[{}].shape'.format(idx, whitening_matrices_list_keys[2*idx],whitening_matrices_list_keys[2*idx-1]))
+                    psi = whitening_matrices_list_values[2 * idx - 1]
+                    gamma = whitening_matrices_list_values[2 * idx ]
+                    d_p = psi @ dp @gamma
+                '''
                 if weight_decay != 0:
                     d_p = d_p.add(p, alpha=weight_decay)
                 if momentum != 0:
@@ -107,7 +80,7 @@ class SGD(Optimizer):
                         d_p = d_p.add(buf, alpha=momentum)
                     else:
                         d_p = buf
-
+                '''
                 p.add_(d_p, alpha=-group['lr'])
 
         return loss
@@ -145,25 +118,27 @@ class MLP(nn.Module):
         self.linear2 = nn.Linear(250, 100)
         self.linear3 = nn.Linear(100, 10)
         self.GS = OrderedDict()
-        self.GS['GAM1_AVG'] = np.zeros((250,250))
+        self.GS['PSI0_AVG'] = np.zeros((784, 784))
+        self.GS['GAM0_AVG'] = np.zeros((250,250))
         self.GS['PSI1_AVG'] = np.zeros((250, 250))
-        self.GS['GAM2_AVG'] = np.zeros((100, 100))
+        self.GS['GAM1_AVG'] = np.zeros((100, 100))
         self.GS['PSI2_AVG'] = np.zeros((100, 100))
-        self.GS['GAM3_AVG'] = np.zeros((10, 10))
+        self.GS['GAM2_AVG'] = np.zeros((10, 10))
         self.GSINV = {}
         for item_no, (key, item) in enumerate(self.GS.items()):
             self.GSINV[key] = self.GS[key]
 
     def forward(self, X):
-        self.s1 = self.linear1(X)
-        self.a1 = F.relu(self.s1)
-        self.s2 = self.linear2(self.a1)
-        self.a2 = F.relu(self.s2)
-        self.s3 = self.linear3(self.a2)
+        self.a0 = X
+        self.s0 = self.linear1(self.a0)
+        self.a1 = F.relu(self.s0)
+        self.s1 = self.linear2(self.a1)
+        self.a2 = F.relu(self.s1)
+        self.s2 = self.linear3(self.a2)
+        self.s0.retain_grad()
         self.s1.retain_grad()
         self.s2.retain_grad()
-        self.s3.retain_grad()
-        return F.log_softmax(self.s3, dim=1)
+        return F.log_softmax(self.s2, dim=1)
 
     '''
     def forward(self, X):
@@ -178,13 +153,14 @@ class MLP(nn.Module):
     '''
 
     def get_grads(self):
-        s1_grad = self.s1.grad.detach().numpy()
+        a0 = self.a0.detach().numpy()
+        s0_grad = self.s0.grad.detach().numpy()
         a1 = self.a1.detach().numpy()
-        s2_grad = self.s2.grad.detach().numpy()
+        s1_grad = self.s1.grad.detach().numpy()
         a2 = self.a2.detach().numpy()
-        s3_grad = self.s3.grad.detach().numpy()
+        s2_grad = self.s2.grad.detach().numpy()
 
-        return (s1_grad, a1, s2_grad, a2, s3_grad)
+        return (a0, s0_grad, a1, s1_grad, a2, s2_grad)
 
     def maintain_avgs(self, params):
         corr_curr = [None]*len(params)
@@ -192,11 +168,12 @@ class MLP(nn.Module):
             corr_curr[item_no] = params[item_no].T @ params[item_no]
         alpha = 0.95
         for item_no, (key, item) in enumerate(self.GS.items()):
+            #print('corr_curr[{}].shape = {}, GS.shape[{}] = {}'.format(item_no, corr_curr[item_no].shape, key, self.GS[key].shape))
             self.GS[key] = alpha * self.GS[key] + (1 - alpha) * corr_curr[item_no]
 
     def get_inverses(self):
         for item_no, (key, item) in enumerate(self.GS.items()):
-            self.GSINV[key] = np.linalg.inv(self.GS[key])
+            self.GSINV[key] = np.linalg.inv(self.GS[key] + np.eye(self.GS[key].shape[0]) * 0.001)
 
 
 def train(args, model, device, train_loader, optimizer, epoch, cnn_model=False):
@@ -216,7 +193,7 @@ def train(args, model, device, train_loader, optimizer, epoch, cnn_model=False):
         model.maintain_avgs(params)
         model.get_inverses()
 
-        optimizer.step()
+        optimizer.step(whitening_matrices=model.GSINV)
 
         if batch_idx % args.log_interval == 0:
             print('Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}'.format(
@@ -298,7 +275,8 @@ def main():
     else:
         model = MLP().to(device)
     #optimizer = optim.Adadelta(model.parameters(), lr=args.lr)
-    optimizer = optim.SGD(model.parameters(), lr=args.lr)
+    #optimizer = optim.SGD(model.parameters(), lr=args.lr)
+    optimizer = NGD(model.parameters(), lr=args.lr)
     scheduler = StepLR(optimizer, step_size=1, gamma=args.gamma)
     for epoch in range(1, args.epochs + 1):
         train(args, model, device, train_loader, optimizer, epoch, cnn_model=args.cnn_model)
