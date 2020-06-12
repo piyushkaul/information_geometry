@@ -25,6 +25,7 @@ class NGD(Optimizer):
 
         defaults = dict(lr=lr, momentum=momentum, dampening=dampening,
                         weight_decay=weight_decay, nesterov=nesterov)
+
         if nesterov and (momentum <= 0 or dampening != 0):
             raise ValueError("Nesterov momentum requires a momentum and zero dampening")
         super(NGD, self).__init__(params, defaults)
@@ -124,7 +125,9 @@ class MLP(nn.Module):
         self.GS['GAM1_AVG'] = np.zeros((100, 100))
         self.GS['PSI2_AVG'] = np.zeros((100, 100))
         self.GS['GAM2_AVG'] = np.zeros((10, 10))
+        self.GSLOWER = {}
         self.GSINV = {}
+        self.P = {}
         for item_no, (key, item) in enumerate(self.GS.items()):
             self.GSINV[key] = self.GS[key]
 
@@ -162,6 +165,25 @@ class MLP(nn.Module):
 
         return (a0, s0_grad, a1, s1_grad, a2, s2_grad)
 
+    def projection_matrix_update(self, matrix, key, percent=0.1):
+        eigval, eigvec = np.linalg.eigh(matrix)
+        #plt.plot(eigval)
+        #plt.show()
+        num_eigvals = eigval.shape[0]
+        subspace_size = int(num_eigvals*percent)
+        eigvec_subspace = eigvec[:,-subspace_size:]
+        #print('Shape of P[{}] = {}'.format(key, eigvec_subspace.shape))
+        self.P[key] = eigvec_subspace
+
+    def project_to_lower_space(self, matrix, key):
+        #print('project_to_lower_space: Shape of P[{}] = {}. Shape of matrix = {}'.format(key, self.P[key].shape, matrix.shape))
+        return matrix @ self.P[key]
+
+    def project_to_higher_space(self, matrix, key):
+        #print('project_to_higher_space: Shape of P[{}] = {}. Shape of matrix = {}'.format(key, self.P[key].shape, matrix.shape))
+        return self.P[key] @ matrix
+
+
     def maintain_avgs(self, params):
         corr_curr = [None]*len(params)
         for item_no, item in enumerate(params):
@@ -170,10 +192,14 @@ class MLP(nn.Module):
         for item_no, (key, item) in enumerate(self.GS.items()):
             #print('corr_curr[{}].shape = {}, GS.shape[{}] = {}'.format(item_no, corr_curr[item_no].shape, key, self.GS[key].shape))
             self.GS[key] = alpha * self.GS[key] + (1 - alpha) * corr_curr[item_no]
+            self.projection_matrix_update(self.GS[key], key)
+
 
     def get_inverses(self):
         for item_no, (key, item) in enumerate(self.GS.items()):
-            self.GSINV[key] = np.linalg.inv(self.GS[key] + np.eye(self.GS[key].shape[0]) * 0.001)
+            GSPROJ = self.project_to_lower_space(self.GS[key], key)
+            GSPROJINV = np.linalg.pinv(GSPROJ)# + np.eye(GSPROJ.shape[0]) * 0.001)
+            self.GSINV[key] = self.project_to_higher_space(GSPROJINV, key)
 
 
 def train(args, model, device, train_loader, optimizer, epoch, cnn_model=False):
