@@ -9,7 +9,7 @@ from torch.optim.lr_scheduler import StepLR
 import numpy as np
 from collections import OrderedDict
 import matplotlib.pyplot as plt
-
+from datetime import datetime
 from torch.optim.optimizer import Optimizer, required
 
 
@@ -174,6 +174,7 @@ class MLP(nn.Module):
         eigvec_subspace = eigvec[:,-subspace_size:]
         #print('Shape of P[{}] = {}'.format(key, eigvec_subspace.shape))
         self.P[key] = eigvec_subspace
+        self.P[key] == np.eye(matrix.shape[0])
 
     def project_to_lower_space(self, matrix, key):
         #print('project_to_lower_space: Shape of P[{}] = {}. Shape of matrix = {}'.format(key, self.P[key].shape, matrix.shape))
@@ -192,11 +193,10 @@ class MLP(nn.Module):
         for item_no, (key, item) in enumerate(self.GS.items()):
             #print('corr_curr[{}].shape = {}, GS.shape[{}] = {}'.format(item_no, corr_curr[item_no].shape, key, self.GS[key].shape))
             self.GS[key] = alpha * self.GS[key] + (1 - alpha) * corr_curr[item_no]
-            self.projection_matrix_update(self.GS[key], key)
-
 
     def get_inverses(self):
         for item_no, (key, item) in enumerate(self.GS.items()):
+            self.projection_matrix_update(self.GS[key], key)
             GSPROJ = self.project_to_lower_space(self.GS[key], key)
             GSPROJINV = np.linalg.pinv(GSPROJ)# + np.eye(GSPROJ.shape[0]) * 0.001)
             self.GSINV[key] = self.project_to_higher_space(GSPROJINV, key)
@@ -217,7 +217,8 @@ def train(args, model, device, train_loader, optimizer, epoch, cnn_model=False):
 
         params = model.get_grads()
         model.maintain_avgs(params)
-        model.get_inverses()
+        if batch_idx % 50 == 0:
+            model.get_inverses()
 
         optimizer.step(whitening_matrices=model.GSINV)
 
@@ -315,11 +316,14 @@ def main():
     plt.plot(range(len(accuracy_loss_list)), accuracy_loss_list, 'r', label='accuracy loss list')
     plt.legend(loc=2, fontsize="small")
     plt.show()
+    now = datetime.now()
+    date_time = now.strftime("%m%d%Y%H%M%S")
+
     plt.savefig('eig_vals.png')
-
     if args.save_model:
-        torch.save(model.state_dict(), "mnist_cnn.pt")
-
+        torch.save(model.state_dict(), "mnist_cnn" + date_time + ".pt")
+    np.save('temp/losses_' + data_time +'.npy', np.array(test_loss_list))
+    np.save('temp/accuracy_' + data_time + '.npy', np.array(accuracy_loss_list))
 
 if __name__ == '__main__':
     main()
