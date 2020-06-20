@@ -215,7 +215,7 @@ def train(args, model, device, train_loader, optimizer, epoch, train_loss_list, 
     for batch_idx, (data, target) in enumerate(train_loader):
         data, target = data.to(device), target.to(device)
         if not cnn_model:
-            data = np.reshape(data, (data.shape[0], -1))
+            data = torch.reshape(data, (data.shape[0], -1))
         #print('data size = {}, target size = {}'.format(data.shape, target.shape))
         optimizer.zero_grad()
         output = model(data)
@@ -283,14 +283,13 @@ def save_files(loss_list, tag, suffix):
     loss_filename = 'temp/' + tag + suffix + 'txt'
     loss_list_np.tofile(loss_filename, '\n', '%f')
 
-def main():
-    # Training settings
+def argument_parser():
     parser = argparse.ArgumentParser(description='PyTorch MNIST Example')
     parser.add_argument('--batch-size', type=int, default=64, metavar='N',
                         help='input batch size for training (default: 64)')
     parser.add_argument('--test-batch-size', type=int, default=1000, metavar='N',
                         help='input batch size for testing (default: 1000)')
-    parser.add_argument('--epochs', type=int, default=5, metavar='N',
+    parser.add_argument('--epochs', type=int, default=15, metavar='N',
                         help='number of epochs to train (default: 14)')
     parser.add_argument('--lr', type=float, default=1.0, metavar='LR',
                         help='learning rate (default: 1.0)')
@@ -307,7 +306,13 @@ def main():
     parser.add_argument('--cnn-model', action='store_true', default=False,
                         help='Use CNN model now')
     parser.add_argument('--optimizer', type=str, default='sgd', help='Optimizer to Use')
-    args = parser.parse_args()
+    return parser
+
+def main(args=None):
+    # Training settings
+    if not args:
+        parser = argument_parser()
+        args = parser.parse_args()
     test_loss_list = []
     test_accuracy_list = []
     train_loss_list = []
@@ -375,4 +380,15 @@ def main():
     save_files(test_accuracy_list, 'train_accuracy', suffix)
 
 if __name__ == '__main__':
-    main()
+    if False:
+        main()
+    else:
+        parser = argument_parser()
+        args = parser.parse_args()
+        for gamma in [0.5,0.6,0.7,0.8,0.9]:
+            for lr in [0.1,0.01,0.001,0.0001]:
+                for opt in ['ngd', 'sgd', 'adadelta']:
+                    args.gamma = gamma
+                    args.lr = lr
+                    args.optimizer = opt
+                    main(args)
