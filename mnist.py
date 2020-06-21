@@ -58,15 +58,21 @@ class NGD(Optimizer):
                 whitening_matrices_list_values = list(whitening_matrices.values())
                 whitening_matrices_list_keys = list(whitening_matrices.keys())
 
-            for idx, p in enumerate(group['params']):
+            idx = 0
+            for p in group['params']:
                 if p.grad is None:
                     continue
                 d_p = p.grad
-                if whitening_matrices_list:
+                if whitening_matrices_list_values and not len(d_p.shape) == 1:
                     #print('idx = {}, whitening_matrices[{}].shape, whitening_matrices[{}].shape'.format(idx, whitening_matrices_list_keys[2*idx],whitening_matrices_list_keys[2*idx-1]))
-                    psi = whitening_matrices_list_values[2 * idx - 1]
+                    psi = whitening_matrices_list_values[2 * idx + 1]
                     gamma = whitening_matrices_list_values[2 * idx]
-                    d_p = psi @ dp @gamma
+                    #print('type d_p = {}, psi = {}, gamma = {}'.format(type(d_p), type(psi), type(gamma)))
+                    #print('Shape d_p = {}, psi = {}, gamma = {}'.format(d_p.shape, psi.shape, gamma.shape))
+                    psi_tensor = torch.from_numpy(psi.astype(np.float32))
+                    gamma_tensor = torch.from_numpy(gamma.astype(np.float32))
+                    d_p = psi_tensor @ d_p @gamma_tensor
+                    idx = idx + 1
                 '''
                 if weight_decay != 0:
                     d_p = d_p.add(p, alpha=weight_decay)
@@ -113,8 +119,9 @@ class Net(nn.Module):
 
 
 class MLP(nn.Module):
-    def __init__(self):
+    def __init__(self, subspace_fraction=0.1):
         super(MLP, self).__init__()
+        self.subspace_fraction = subspace_fraction
         self.linear1 = nn.Linear(784, 250)
         self.linear2 = nn.Linear(250, 100)
         self.linear3 = nn.Linear(100, 10)
@@ -149,8 +156,8 @@ class MLP(nn.Module):
         self.s2.retain_grad()
         return F.log_softmax(self.s2, dim=1)
 
-    def get_subspace_size(self, full_space_size, percent=0.1):
-        subspace_size = int(full_space_size * percent)
+    def get_subspace_size(self, full_space_size):
+        subspace_size = int(full_space_size * self.subspace_fraction)
         return subspace_size
 
     def get_grads(self):
@@ -305,8 +312,62 @@ def argument_parser():
                         help='For Saving the current Model')
     parser.add_argument('--cnn-model', action='store_true', default=False,
                         help='Use CNN model now')
-    parser.add_argument('--optimizer', type=str, default='sgd', help='Optimizer to Use')
+    parser.add_argument('--optimizer', type=str, default='sgd',
+                        help='Optimizer to Use [sgd|adadelta|ngd]')
+    parser.add_argument('--dataset', type=str, default='mnist',
+                        help='Dataset to Use. [mnist|fashion_mnist]')
+    parser.add_argument('--subspace-fraction', type=int, default=0.1,
+                        help='Fraction of Subspace to use for NGD 0 < frac < 1')
+
     return parser
+
+def mnist_loader(args, kwargs):
+    train_loader = torch.utils.data.DataLoader(
+        datasets.MNIST('../data', train=True, download=True,
+                       transform=transforms.Compose([
+                           transforms.ToTensor(),
+                           transforms.Normalize((0.1307,), (0.3081,))
+                       ])),
+        batch_size=args.batch_size, shuffle=True, **kwargs)
+    test_loader = torch.utils.data.DataLoader(
+        datasets.MNIST('../data', train=False, transform=transforms.Compose([
+                           transforms.ToTensor(),
+                           transforms.Normalize((0.1307,), (0.3081,))
+                       ])),
+        batch_size=args.test_batch_size, shuffle=True, **kwargs)
+    return train_loader, test_loader
+
+def fashion_mnist_loader(args, kwargs):
+    train_loader = torch.utils.data.DataLoader(
+        datasets.FashionMNIST(
+            root='./data/FashionMNIST',
+            train=True,
+            download=True,
+            transform=transforms.Compose([
+                transforms.ToTensor()
+            ])),
+        batch_size=args.batch_size, shuffle=True, **kwargs)
+
+    test_loader = torch.utils.data.DataLoader(
+        datasets.FashionMNIST(
+            root='./data/FashionMNIST',
+            train=False,
+            download=True,
+            transform=transforms.Compose([
+                transforms.ToTensor()
+            ])),
+        batch_size = args.batch_size, shuffle = True, ** kwargs)
+
+    return train_loader, test_loader
+
+def get_data_loader(args, kwargs):
+    if args.dataset == 'mnist':
+        train_loader, test_loader = mnist_loader(args, kwargs)
+    elif args.dataset == 'fashion_mnist':
+        train_loader, test_loader = fashion_mnist_loader(args, kwargs)
+    else:
+        raise Exception('Unknown dataset = {}'.format(args.dataset))
+    return train_loader, test_loader
 
 def main(args=None):
     # Training settings
@@ -324,24 +385,13 @@ def main(args=None):
     device = torch.device("cuda" if use_cuda else "cpu")
 
     kwargs = {'num_workers': 1, 'pin_memory': True} if use_cuda else {}
-    train_loader = torch.utils.data.DataLoader(
-        datasets.MNIST('../data', train=True, download=True,
-                       transform=transforms.Compose([
-                           transforms.ToTensor(),
-                           transforms.Normalize((0.1307,), (0.3081,))
-                       ])),
-        batch_size=args.batch_size, shuffle=True, **kwargs)
-    test_loader = torch.utils.data.DataLoader(
-        datasets.MNIST('../data', train=False, transform=transforms.Compose([
-                           transforms.ToTensor(),
-                           transforms.Normalize((0.1307,), (0.3081,))
-                       ])),
-        batch_size=args.test_batch_size, shuffle=True, **kwargs)
+
     if args.cnn_model:
         model = Net().to(device)
     else:
-        model = MLP().to(device)
+        model = MLP(subspace_fraction=args.subspace_fraction).to(device)
 
+    train_loader, test_loader = get_data_loader(args, kwargs)
     optimizer = select_optimizer(model, args.optimizer, args.lr)
     scheduler = StepLR(optimizer, step_size=1, gamma=args.gamma)
 
@@ -365,19 +415,23 @@ def main(args=None):
     plt.legend(loc=2, fontsize="small")
 
     now = datetime.now()
-    date_time = now.strftime("%m%d%Y%H%M%S")
+    date_time = now.strftime("%Y_%m_%d_%H_%M_%S")
 
-    suffix = date_time + '_' + args.optimizer + '_lr' + str(args.lr) + '_gamma' + str(args.gamma)
+    suffix = date_time + '_' + args.optimizer + '_lr_' + str(args.lr) + '_gamma_' + str(args.gamma) + '_frac_' + str(args.subspace_fraction) + '_' + args.dataset
 
     if args.save_model:
         torch.save(model.state_dict(), "mnist_cnn" + suffix + ".pt")
 
 
     plt.savefig('plot' + suffix + '.png')
+    plt.clf()
+
     save_files(test_loss_list, 'test_loss', suffix)
     save_files(test_accuracy_list, 'test_accuracy', suffix)
     save_files(train_loss_list, 'train_loss', suffix)
     save_files(test_accuracy_list, 'train_accuracy', suffix)
+    with open("summary.txt", "a") as fp_sum:
+        fp_sum.writelines(['Experiment : {}\t\t Test Acc = {}, Test Loss, Train Acc = {}, Train Loss = {}'.format(suffix, test_accuracy_list[-1], test_loss_list[-1], train_accuracy_list[-1], train_loss_list[-1])])
 
 if __name__ == '__main__':
     if False:
@@ -386,9 +440,11 @@ if __name__ == '__main__':
         parser = argument_parser()
         args = parser.parse_args()
         for gamma in [0.5,0.6,0.7,0.8,0.9]:
-            for lr in [0.1,0.01,0.001,0.0001]:
-                for opt in ['ngd', 'sgd', 'adadelta']:
-                    args.gamma = gamma
-                    args.lr = lr
-                    args.optimizer = opt
-                    main(args)
+            for lr in [0.5,0.4,0.2,0.1]:
+                for opt in ['ngd']:#, 'sgd', 'adadelta']:
+                    for subspace_fraction in [0.1,0.2,0.4,0.8]:
+                        args.gamma = gamma
+                        args.lr = lr
+                        args.optimizer = opt
+                        args.subspace_fraction = subspace_fraction
+                        main(args)
