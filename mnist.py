@@ -170,6 +170,8 @@ class MLP(nn.Module):
         return (a0, s0_grad, a1, s1_grad, a2, s2_grad)
 
     def projection_matrix_update(self):
+        if self.subspace_fraction == 1:
+            return
         for item_no, (key, item) in enumerate(self.GS.items()):
             eigval, eigvec = np.linalg.eigh(self.GS[key])
             subspace_size = self.get_subspace_size(eigvec.shape[0])
@@ -179,34 +181,45 @@ class MLP(nn.Module):
 
     def project_vec_to_lower_space(self, matrix, key):
         #print('project_to_lower_space: Shape of P[{}] = {}. Shape of matrix = {}'.format(key, self.P[key].shape, matrix.shape))
+        if self.subspace_fraction==1:
+            return matrix
         return matrix @ self.P[key]
 
     def project_vec_to_higher_space(self, matrix, key):
         #print('project_to_higher_space: Shape of P[{}] = {}. Shape of matrix = {}'.format(key, self.P[key].shape, matrix.shape))
+        if self.subspace_fraction==1:
+            return matrix
         return self.P[key] @ matrix
 
     def project_mtx_To_higher_space(self, matrix, key):
         #print('self.P[{}].shape = {}, matrix.shape = {}'.format(key, self.P[key].shape, matrix.shape))
+        if self.subspace_fraction==1:
+            return matrix
         return self.P[key] @ matrix @ self.P[key].T
 
     def maintain_avgs(self, params):
         corr_curr = [None]*len(params)
+        corr_curr_lower_proj = [None] * len(params)
         corr_curr_lower = [None] * len(params)
         for item_no, (key, item) in enumerate(self.GS.items()):
             corr_curr[item_no] = params[item_no].T @ params[item_no]
-            corr_curr_lower_proj = self.project_vec_to_lower_space(params[item_no], key)
-            corr_curr_lower[item_no] = corr_curr_lower_proj.T @ corr_curr_lower_proj
+            corr_curr_lower_proj[item_no] = self.project_vec_to_lower_space(params[item_no], key)
+            corr_curr_lower[item_no] = corr_curr_lower_proj[item_no].T @ corr_curr_lower_proj[item_no]
         alpha = 0.95
         for item_no, (key, item) in enumerate(self.GS.items()):
             #print('corr_curr[{}].shape = {}, GS.shape[{}] = {}'.format(item_no, corr_curr[item_no].shape, key, self.GS[key].shape))
             self.GS[key] = alpha * self.GS[key] + (1 - alpha) * corr_curr[item_no]
             self.GSLOWER[key] = alpha * self.GSLOWER[key] + (1 - alpha) * self.GSLOWER[key]
-
+            #X = corr_curr_lower_proj[item_no]
+            #inv = ainv - ainv * x * inv(1 + x'*ainv*x)*x' * ainv
+            #self.GSINV[key] = self.GSINV[key] - self.GSINV[key] @  X @ np.reciprocal(1 + X.T @ self.GSINV[key] @ X ) * X.T * self.GSINV[key]
 
     def get_inverses(self):
         for item_no, (key, item) in enumerate(self.GS.items()):
             GSPROJINV = np.linalg.inv(self.GSLOWER[key])# + np.eye(GSPROJ.shape[0]) * 0.001)
             self.GSINV[key] = self.project_mtx_To_higher_space(GSPROJINV, key)
+
+
 
             #self.projection_matrix_update(self.GS[key], key)
             #GSPROJ = self.project_to_lower_space(self.GS[key], key)
@@ -316,7 +329,7 @@ def argument_parser():
                         help='Optimizer to Use [sgd|adadelta|ngd]')
     parser.add_argument('--dataset', type=str, default='mnist',
                         help='Dataset to Use. [mnist|fashion_mnist]')
-    parser.add_argument('--subspace-fraction', type=int, default=0.1,
+    parser.add_argument('--subspace-fraction', type=float, default=0.1,
                         help='Fraction of Subspace to use for NGD 0 < frac < 1')
 
     return parser
@@ -434,7 +447,7 @@ def main(args=None):
         fp_sum.writelines(['Experiment : {}\t\t Test Acc = {}, Test Loss, Train Acc = {}, Train Loss = {}'.format(suffix, test_accuracy_list[-1], test_loss_list[-1], train_accuracy_list[-1], train_loss_list[-1])])
 
 if __name__ == '__main__':
-    if False:
+    if True:
         main()
     else:
         parser = argument_parser()
