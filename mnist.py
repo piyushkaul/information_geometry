@@ -125,6 +125,7 @@ class MLP(nn.Module):
         self.linear1 = nn.Linear(784, 250)
         self.linear2 = nn.Linear(250, 100)
         self.linear3 = nn.Linear(100, 10)
+
         self.GS = OrderedDict()
         self.GS['PSI0_AVG'] = np.eye((784))
         self.GS['GAM0_AVG'] = np.eye((250))
@@ -132,10 +133,15 @@ class MLP(nn.Module):
         self.GS['GAM1_AVG'] = np.eye((100))
         self.GS['PSI2_AVG'] = np.eye((100))
         self.GS['GAM2_AVG'] = np.eye((10))
+
         self.GSLOWER = {}
+        self.GSLOWERINV = {}
         for key, val in self.GS.items():
             self.GSLOWER[key] = np.eye(self.get_subspace_size(self.GS[key].shape[0]))
+            self.GSLOWERINV[key] = np.eye(self.get_subspace_size(self.GS[key].shape[0]))
+
         self.GSINV = {}
+
         self.P = {}
         for item_no, (key, item) in enumerate(self.GS.items()):
             self.GSINV[key] = self.GS[key]
@@ -158,6 +164,8 @@ class MLP(nn.Module):
 
     def get_subspace_size(self, full_space_size):
         subspace_size = int(full_space_size * self.subspace_fraction)
+        if subspace_size < 64:
+            subspace_size = full_space_size
         return subspace_size
 
     def get_grads(self):
@@ -167,6 +175,7 @@ class MLP(nn.Module):
         s1_grad = self.s1.grad.detach().numpy()
         a2 = self.a2.detach().numpy()
         s2_grad = self.s2.grad.detach().numpy()
+        #print('a0.shape = {}, so_grad.shape = {}, a1.shape = {}, s1_grad.shape = {}, a2.shape = {}, s2_grad.shape = {}'.format(a0.shape, s0_grad.shape, a1.shape, s1_grad.shape, a2.shape, s2_grad.shape))
         return (a0, s0_grad, a1, s1_grad, a2, s2_grad)
 
     def projection_matrix_update(self):
@@ -178,7 +187,6 @@ class MLP(nn.Module):
             eigvec_subspace = eigvec[:, -subspace_size:]
             self.P[key] = eigvec_subspace
 
-
     def project_vec_to_lower_space(self, matrix, key):
         #print('project_to_lower_space: Shape of P[{}] = {}. Shape of matrix = {}'.format(key, self.P[key].shape, matrix.shape))
         if self.subspace_fraction==1:
@@ -187,15 +195,29 @@ class MLP(nn.Module):
 
     def project_vec_to_higher_space(self, matrix, key):
         #print('project_to_higher_space: Shape of P[{}] = {}. Shape of matrix = {}'.format(key, self.P[key].shape, matrix.shape))
-        if self.subspace_fraction==1:
+        if self.subspace_fraction == 1:
             return matrix
         return self.P[key] @ matrix
 
     def project_mtx_To_higher_space(self, matrix, key):
         #print('self.P[{}].shape = {}, matrix.shape = {}'.format(key, self.P[key].shape, matrix.shape))
-        if self.subspace_fraction==1:
+        if self.subspace_fraction == 1:
             return matrix
         return self.P[key] @ matrix @ self.P[key].T
+
+    def matrix_inv_lemma(self, X, GS, key='none'):
+        num_batches = X.shape[0]
+        # cinv = ainv - ainv * x * inv(eye(32) + x' * ainv * x ) * x' * ainv
+        #print('X.shape = {}, GSINV[{}].shape = {}'.format(X.shape, key, GS.shape))
+        inner_term = np.eye(num_batches) + X @ GS @ X.T
+        xg = X @ GS
+        gx = GS @ X.T
+        GS = GS - gx @ np.linalg.inv(inner_term) @ xg
+
+        #print(
+        #    'X.shape = {}, GSINV[{}].shape = {}, inner_term.shape = {}'.format(X.shape, key, self.GSLOWERINV[key].shape,
+        #                                                                       inner_term.shape))
+        return GS
 
     def maintain_avgs(self, params):
         corr_curr = [None]*len(params)
@@ -210,9 +232,11 @@ class MLP(nn.Module):
             #print('corr_curr[{}].shape = {}, GS.shape[{}] = {}'.format(item_no, corr_curr[item_no].shape, key, self.GS[key].shape))
             self.GS[key] = alpha * self.GS[key] + (1 - alpha) * corr_curr[item_no]
             self.GSLOWER[key] = alpha * self.GSLOWER[key] + (1 - alpha) * self.GSLOWER[key]
-            #X = corr_curr_lower_proj[item_no]
-            #inv = ainv - ainv * x * inv(1 + x'*ainv*x)*x' * ainv
-            #self.GSINV[key] = self.GSINV[key] - self.GSINV[key] @  X @ np.reciprocal(1 + X.T @ self.GSINV[key] @ X ) * X.T * self.GSINV[key]
+            XLOWER = corr_curr_lower_proj[item_no]
+            XFULL = corr_curr[item_no]
+            self.GSLOWERINV[key] = self.matrix_inv_lemma(XLOWER, self.GSLOWERINV[key], key=key)
+            self.GSINV[key] = self.matrix_inv_lemma(XFULL, self.GSINV[key], key=key)
+
 
     def get_inverses(self):
         for item_no, (key, item) in enumerate(self.GS.items()):
