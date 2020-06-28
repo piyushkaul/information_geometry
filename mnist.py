@@ -149,6 +149,11 @@ class MLP(nn.Module):
             eigvec_subspace = self.GS[key][:, -subspace_size:]
             self.P[key] = eigvec_subspace
 
+        self.corr_curr = [None]*len(self.GS)
+        self.corr_curr_lower_proj = [None] * len(self.GS)
+        self.corr_curr_lower = [None] * len(self.GS)
+        self.tick = 0
+
 
     def forward(self, X):
         self.a0 = X
@@ -213,42 +218,81 @@ class MLP(nn.Module):
         xg = X @ GS
         gx = GS @ X.T
         GS = GS - gx @ np.linalg.inv(inner_term) @ xg
-
         #print(
         #    'X.shape = {}, GSINV[{}].shape = {}, inner_term.shape = {}'.format(X.shape, key, self.GSLOWERINV[key].shape,
         #                                                                       inner_term.shape))
         return GS
 
-    def maintain_avgs(self, params):
-        corr_curr = [None]*len(params)
-        corr_curr_lower_proj = [None] * len(params)
-        corr_curr_lower = [None] * len(params)
+    def maintain_corr(self, params):
         for item_no, (key, item) in enumerate(self.GS.items()):
-            corr_curr[item_no] = params[item_no].T @ params[item_no]
-            corr_curr_lower_proj[item_no] = self.project_vec_to_lower_space(params[item_no], key)
-            corr_curr_lower[item_no] = corr_curr_lower_proj[item_no].T @ corr_curr_lower_proj[item_no]
+            self.corr_curr[item_no] = params[item_no].T @ params[item_no]
+
+    def maintain_corr_lower(self, params):
+        for item_no, (key, item) in enumerate(self.GS.items()):
+            self.corr_curr_lower_proj[item_no] = self.project_vec_to_lower_space(params[item_no], key)
+            self.corr_curr_lower[item_no] = self.corr_curr_lower_proj[item_no].T @ self.corr_curr_lower_proj[item_no]
+
+    def maintain_avgs(self):
         alpha = 0.95
         for item_no, (key, item) in enumerate(self.GS.items()):
             #print('corr_curr[{}].shape = {}, GS.shape[{}] = {}'.format(item_no, corr_curr[item_no].shape, key, self.GS[key].shape))
-            self.GS[key] = alpha * self.GS[key] + (1 - alpha) * corr_curr[item_no]
+            self.GS[key] = alpha * self.GS[key] + (1 - alpha) * self.corr_curr[item_no]
+
+    def maintain_avgs_lower(self):
+        alpha = 0.95
+        for item_no, (key, item) in enumerate(self.GS.items()):
+            #print('corr_curr[{}].shape = {}, GS.shape[{}] = {}'.format(item_no, corr_curr[item_no].shape, key, self.GS[key].shape))
             self.GSLOWER[key] = alpha * self.GSLOWER[key] + (1 - alpha) * self.GSLOWER[key]
-            XLOWER = corr_curr_lower_proj[item_no]
-            XFULL = corr_curr[item_no]
-            self.GSLOWERINV[key] = self.matrix_inv_lemma(XLOWER, self.GSLOWERINV[key], key=key)
+
+
+    def get_invs_recursively(self):
+        for item_no, (key, item) in enumerate(self.GS.items()):
+            XFULL = self.corr_curr[item_no]
             self.GSINV[key] = self.matrix_inv_lemma(XFULL, self.GSINV[key], key=key)
 
+    def get_invs_recursively_lower(self):
+        for item_no, (key, item) in enumerate(self.GS.items()):
+            XLOWER = self.corr_curr_lower_proj[item_no]
+            self.GSLOWERINV[key] = self.matrix_inv_lemma(XLOWER, self.GSLOWERINV[key], key=key)
 
-    def get_inverses(self):
+
+    def get_inverses_direct(self):
+        for item_no, (key, item) in enumerate(self.GS.items()):
+            self.GSINV[key] = np.linalg.inv(self.GS[key])# + np.eye(GSPROJ.shape[0]) * 0.001)
+
+
+    def get_inverses_direct_lower(self):
         for item_no, (key, item) in enumerate(self.GS.items()):
             GSPROJINV = np.linalg.inv(self.GSLOWER[key])# + np.eye(GSPROJ.shape[0]) * 0.001)
             self.GSINV[key] = self.project_mtx_To_higher_space(GSPROJINV, key)
 
 
+    def maintain_invs(self, params, args):
+        tick = self.tick
 
-            #self.projection_matrix_update(self.GS[key], key)
-            #GSPROJ = self.project_to_lower_space(self.GS[key], key)
-            #GSPROJINV = np.linalg.pinv(GSPROJ)# + np.eye(GSPROJ.shape[0]) * 0.001)
-            #self.GSINV[key] = self.project_to_higher_space(GSPROJINV, key)
+        if args.inv_type == 'recursive' and args.subspace_fraction == 1:
+            self.maintain_corr(params)
+            self.maintain_avgs()
+            if True:#tick % args.inv_period == 0:
+                self.get_invs_recursively()
+        elif args.inv_type == 'recursive' and args.subspace_fraction < 1:
+            self.maintain_corr_lower(params)
+            self.maintain_avgs_lower()
+            if True:#tick % args.inv_period == 0:
+                self.get_invs_recursively_lower()
+        elif args.inv_type == 'direct' and args.subspace_fraction == 1:
+            self.maintain_corr(params)
+            self.maintain_avgs()
+            if tick % args.inv_period == 0:
+                self.get_inverses_direct()
+        elif args.inv_type == 'direct' and args.subspace_fraction < 1:
+            self.maintain_corr_lower(params)
+            self.maintain_avgs_lower()
+            if tick % args.inv_period == 0:
+                self.get_inverses_direct_lower()
+        else:
+            raise Exception('unknown combination')
+        self.tick = self.tick + 1
 
 
 def train(args, model, device, train_loader, optimizer, epoch, train_loss_list, train_accuracy_list, cnn_model=False):
@@ -272,10 +316,9 @@ def train(args, model, device, train_loader, optimizer, epoch, train_loss_list, 
 
         if isinstance(optimizer, NGD):
             params = model.get_grads()
-            model.maintain_avgs(params)
-            if batch_idx % 50 == 0:
+            model.maintain_invs(params, args)
+            if batch_idx % args.proj_period == 0:
                 model.projection_matrix_update()
-                model.get_inverses()
             optimizer.step(whitening_matrices=model.GSINV)
         else:
             optimizer.step()
@@ -355,6 +398,13 @@ def argument_parser():
                         help='Dataset to Use. [mnist|fashion_mnist]')
     parser.add_argument('--subspace-fraction', type=float, default=0.1,
                         help='Fraction of Subspace to use for NGD 0 < frac < 1')
+    parser.add_argument('--inv-period', type=int, default=50,
+                        help='batches after which inverse is calculated')
+    parser.add_argument('--inv-type', type=str, default='direct',
+                        help='method of calculation of inverse')
+    parser.add_argument('--proj-period', type=int, default=50,
+                        help='batches after which projection is taken')
+
 
     return parser
 
@@ -454,7 +504,11 @@ def main(args=None):
     now = datetime.now()
     date_time = now.strftime("%Y_%m_%d_%H_%M_%S")
 
-    suffix = date_time + '_' + args.optimizer + '_lr_' + str(args.lr) + '_gamma_' + str(args.gamma) + '_frac_' + str(args.subspace_fraction) + '_' + args.dataset
+    suffix = date_time + '_' + args.optimizer + '_lr_' + str(args.lr) + '_gamma_' + str(args.gamma) + '_frac_' + \
+             str(args.subspace_fraction) + '_' + args.dataset + '_'. arg.inv_type + '_inv_period_' + str(args.inv_period)\
+             + '_proj_period_' + str(args.proj_period)
+
+
 
     if args.save_model:
         torch.save(model.state_dict(), "mnist_cnn" + suffix + ".pt")
@@ -468,7 +522,7 @@ def main(args=None):
     save_files(train_loss_list, 'train_loss', suffix)
     save_files(test_accuracy_list, 'train_accuracy', suffix)
     with open("summary.txt", "a") as fp_sum:
-        fp_sum.writelines(['Experiment : {}\t\t Test Acc = {}, Test Loss, Train Acc = {}, Train Loss = {}'.format(suffix, test_accuracy_list[-1], test_loss_list[-1], train_accuracy_list[-1], train_loss_list[-1])])
+        fp_sum.writelines(['Experiment : {}\tTest Acc = {}\tTest Loss={}\tTrain Acc ={}\tTrain Loss = {}\n'.format(suffix, test_accuracy_list[-1], test_loss_list[-1], train_accuracy_list[-1], train_loss_list[-1])])
 
 if __name__ == '__main__':
     if True:
@@ -480,8 +534,14 @@ if __name__ == '__main__':
             for lr in [0.5,0.4,0.2,0.1]:
                 for opt in ['ngd']:#, 'sgd', 'adadelta']:
                     for subspace_fraction in [0.1,0.2,0.4,0.8]:
-                        args.gamma = gamma
-                        args.lr = lr
-                        args.optimizer = opt
-                        args.subspace_fraction = subspace_fraction
-                        main(args)
+                        for inv_period in [10,50,100]:
+                            for proj_period in [10,50,100]:
+                                for inv_type in ['direct', 'recursive']:
+                                    args.gamma = gamma
+                                    args.lr = lr
+                                    args.optimizer = opt
+                                    args.subspace_fraction = subspace_fraction
+                                    args.inv_period = inv_period
+                                    args.proj_period = proj_period
+                                    args.inv_type = inv_type
+                                    main(args)
