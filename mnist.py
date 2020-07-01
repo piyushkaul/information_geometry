@@ -505,7 +505,7 @@ def main(args=None):
     date_time = now.strftime("%Y_%m_%d_%H_%M_%S")
 
     suffix = date_time + '_' + args.optimizer + '_lr_' + str(args.lr) + '_gamma_' + str(args.gamma) + '_frac_' + \
-             str(args.subspace_fraction) + '_' + args.dataset + '_'. arg.inv_type + '_inv_period_' + str(args.inv_period)\
+             str(args.subspace_fraction) + '_' + args.dataset + '_' + args.inv_type + '_inv_period_' + str(args.inv_period)\
              + '_proj_period_' + str(args.proj_period)
 
 
