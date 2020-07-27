@@ -30,15 +30,20 @@ class MLP(ModelFIM):
         self.GSINV = {}
 
         self.P = {}
+        self.corr_curr = {}
+        self.corr_curr_lower_proj = {}
+        self.corr_curr_lower = {}
+
         for item_no, (key, item) in enumerate(self.GS.items()):
             self.GSINV[key] = self.GS[key]
             subspace_size = self.get_subspace_size(self.GSINV[key].shape[0])
             eigvec_subspace = self.GS[key][:, -subspace_size:]
             self.P[key] = eigvec_subspace
+            self.corr_curr[key] = None
+            self.corr_curr_lower_proj[key] = None
+            self.corr_curr_lower[key] = None
+            self.spatial_sizes[key] = 1
 
-        self.corr_curr = [None]*len(self.GS)
-        self.corr_curr_lower_proj = [None] * len(self.GS)
-        self.corr_curr_lower = [None] * len(self.GS)
         self.tick = 0
 
 
