@@ -71,15 +71,15 @@ class NGD(Optimizer):
                     gamma = whitening_matrices_list_values[2 * idx]
                     #print('type d_p = {}, psi = {}, gamma = {}'.format(type(d_p), type(psi), type(gamma)))
                     #print('Shape d_p = {}, psi = {}, gamma = {}'.format(d_p.shape, psi.shape, gamma.shape))
-                    psi_tensor = torch.from_numpy(psi.astype(np.float32))
-                    gamma_tensor = torch.from_numpy(gamma.astype(np.float32))
+                    psi_tensor = psi#torch.from_numpy(psi.astype(np.float32))
+                    gamma_tensor = gamma#torch.from_numpy(gamma.astype(np.float32))
                     sz = cp.deepcopy(d_p.shape)
                     tensor_dims = len(d_p.shape)
                     if tensor_dims == 4:
-                        d_p = np.reshape(d_p, (sz[0], sz[1]* sz[2]* sz[3]))
-                    d_p = psi_tensor @ d_p @gamma_tensor
+                        d_p = torch.reshape(d_p, (sz[0], sz[1]* sz[2]* sz[3]))
+                    d_p = psi_tensor @ d_p @ gamma_tensor
                     if tensor_dims == 4:
-                        d_p = np.reshape(d_p, sz)
+                        d_p = torch.reshape(d_p, sz)
                     idx = idx + 1
                 '''
                 if weight_decay != 0:
@@ -123,6 +123,7 @@ def train(args, model, device, train_loader, optimizer, epoch, train_loss_list, 
         running_loss += loss.item()
 
         if isinstance(optimizer, NGD):
+            #nn.utils.clip_grad_norm_(model.parameters(), 0.000001),
             params = model.get_grads()
             model.maintain_invs(params, args)
             if batch_idx % args.proj_period == 0:

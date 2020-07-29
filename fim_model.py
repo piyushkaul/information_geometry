@@ -1,6 +1,6 @@
 import torch.nn as nn
 from collections import OrderedDict
-import numpy as np
+import torch
 
 class ModelFIM(nn.Module):
     def __init__(self, subspace_fraction=0.1):
@@ -11,18 +11,18 @@ class ModelFIM(nn.Module):
         self.linear3 = nn.Linear(100, 10)
 
         self.GS = OrderedDict()
-        self.GS['PSI0_AVG'] = np.eye((784))
-        self.GS['GAM0_AVG'] = np.eye((250))
-        self.GS['PSI1_AVG'] = np.eye((250))
-        self.GS['GAM1_AVG'] = np.eye((100))
-        self.GS['PSI2_AVG'] = np.eye((100))
-        self.GS['GAM2_AVG'] = np.eye((10))
+        self.GS['PSI0_AVG'] = torch.eye((784))
+        self.GS['GAM0_AVG'] = torch.eye((250))
+        self.GS['PSI1_AVG'] = torch.eye((250))
+        self.GS['GAM1_AVG'] = torch.eye((100))
+        self.GS['PSI2_AVG'] = torch.eye((100))
+        self.GS['GAM2_AVG'] = torch.eye((10))
 
         self.GSLOWER = {}
         self.GSLOWERINV = {}
         for key, val in self.GS.items():
-            self.GSLOWER[key] = np.eye(self.get_subspace_size(self.GS[key].shape[0]))
-            self.GSLOWERINV[key] = np.eye(self.get_subspace_size(self.GS[key].shape[0]))
+            self.GSLOWER[key] = torch.eye(self.get_subspace_size(self.GS[key].shape[0]))
+            self.GSLOWERINV[key] = torch.eye(self.get_subspace_size(self.GS[key].shape[0]))
 
         self.GSINV = {}
 
@@ -55,7 +55,7 @@ class ModelFIM(nn.Module):
         if self.subspace_fraction == 1:
             return
         for item_no, (key, item) in enumerate(self.GS.items()):
-            eigval, eigvec = np.linalg.eigh(self.GS[key])
+            eigval, eigvec = torch.symeig(self.GS[key], eigenvectors=True)
             subspace_size = self.get_subspace_size(eigvec.shape[0])
             eigvec_subspace = eigvec[:, -subspace_size:]
             self.P[key] = eigvec_subspace
@@ -82,10 +82,10 @@ class ModelFIM(nn.Module):
         num_batches = X.shape[0]
         # cinv = ainv - ainv * x * inv(eye(32) + x' * ainv * x ) * x' * ainv
         #print('X.shape = {}, GSINV[{}].shape = {}'.format(X.shape, key, GS.shape))
-        inner_term = np.eye(num_batches) + X @ GS @ X.T
+        inner_term = torch.eye(num_batches) + X @ GS @ X.T
         xg = X @ GS
         gx = GS @ X.T
-        GS = GS - gx @ np.linalg.inv(inner_term) @ xg
+        GS = GS - gx @ torch.inverse(inner_term) @ xg
         #print(
         #    'X.shape = {}, GSINV[{}].shape = {}, inner_term.shape = {}'.format(X.shape, key, self.GSLOWERINV[key].shape,
         #                                                                       inner_term.shape))
@@ -126,12 +126,12 @@ class ModelFIM(nn.Module):
 
     def get_inverses_direct(self):
         for item_no, (key, item) in enumerate(self.GS.items()):
-            self.GSINV[key] = np.linalg.inv(self.GS[key])# + np.eye(GSPROJ.shape[0]) * 0.001)
+            self.GSINV[key] = torch.inverse(self.GS[key]) + (torch.eye(self.GS[key].shape[0]) * 0.001)
 
 
     def get_inverses_direct_lower(self):
         for item_no, (key, item) in enumerate(self.GS.items()):
-            GSPROJINV = np.linalg.inv(self.GSLOWER[key])# + np.eye(GSPROJ.shape[0]) * 0.001)
+            GSPROJINV = torch.inverse(self.GSLOWER[key])# + np.eye(GSPROJ.shape[0]) * 0.001)
             self.GSINV[key] = self.project_mtx_To_higher_space(GSPROJINV, key)
 
 
