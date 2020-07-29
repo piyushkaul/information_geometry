@@ -234,6 +234,8 @@ def mnist_loader(args, kwargs):
     return train_loader, test_loader
 
 def fashion_mnist_loader(args, kwargs):
+    normalize = transforms.Normalize(mean=[0.5],
+                                     std=[0.225])
     train_loader = torch.utils.data.DataLoader(
         datasets.FashionMNIST(
             root='./data/FashionMNIST',

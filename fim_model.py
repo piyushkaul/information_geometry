@@ -1,6 +1,8 @@
 import torch.nn as nn
 from collections import OrderedDict
 import torch
+from numpy import linalg as LA
+import inspect
 
 class ModelFIM(nn.Module):
     def __init__(self, subspace_fraction=0.1):
@@ -25,19 +27,35 @@ class ModelFIM(nn.Module):
             self.GSLOWERINV[key] = torch.eye(self.get_subspace_size(self.GS[key].shape[0]))
 
         self.GSINV = {}
-
+        self.damping = {}
         self.P = {}
         for item_no, (key, item) in enumerate(self.GS.items()):
             self.GSINV[key] = self.GS[key]
             subspace_size = self.get_subspace_size(self.GSINV[key].shape[0])
             eigvec_subspace = self.GS[key][:, -subspace_size:]
             self.P[key] = eigvec_subspace
+            self.damping[key] = 1
 
         self.corr_curr = [None]*len(self.GS)
         self.corr_curr_lower_proj = [None] * len(self.GS)
         self.corr_curr_lower = [None] * len(self.GS)
         self.tick = 0
+        self.gamma = 0.1
 
+
+    def check_nan(self, tensor, message=None):
+        return
+        if torch.isnan(tensor).any():
+            raise Exception('Got a Nan for tensor = {}', message)
+        #print('For Tensor {}: max={}'.format(message, torch.max(tensor.flatten())))
+        #max_eig = LA.cond(tensor.numpy(), 2)
+        #min_eig = LA.cond(tensor.numpy(), -2)
+        #cond_num = max_eig/min_eig
+        #print('COND NUM: Caller={}, For Tensor {}: condition number={}, max_eig={}, min_eig={}'.format(inspect.stack()[1].function, message, cond_num, max_eig, min_eig ))
+
+        #cond_num = LA.cond(self.GS[key].numpy(), 2) / LA.cond(self.GS[key].numpy(), -2)
+        #if cond_num > 10:
+        #    self.GS[key] = torch.eye(self.GS[key].shape[0])
 
     def forward(self, X):
         raise Exception('Inherit this class')
@@ -93,7 +111,11 @@ class ModelFIM(nn.Module):
 
     def maintain_corr(self, params):
         for item_no, (key, item) in enumerate(self.GS.items()):
-            self.corr_curr[item_no] = params[item_no].T @ params[item_no]
+            if item_no%2 == 0:
+                self.corr_curr[item_no] = params[item_no].T  @ (params[item_no] / params[item_no].shape[0])
+            else:
+                self.corr_curr[item_no] = params[item_no].T  @ params[item_no]
+            #self.check_nan(self.corr_curr[item_no], message=key)
 
     def maintain_corr_lower(self, params):
         for item_no, (key, item) in enumerate(self.GS.items()):
@@ -105,6 +127,9 @@ class ModelFIM(nn.Module):
         for item_no, (key, item) in enumerate(self.GS.items()):
             #print('corr_curr[{}].shape = {}, GS.shape[{}] = {}'.format(item_no, corr_curr[item_no].shape, key, self.GS[key].shape))
             self.GS[key] = alpha * self.GS[key] + (1 - alpha) * self.corr_curr[item_no]
+            self.check_nan(self.GS[key], message=key)
+
+
 
     def maintain_avgs_lower(self):
         alpha = 0.95
@@ -125,9 +150,23 @@ class ModelFIM(nn.Module):
 
 
     def get_inverses_direct(self):
+        self.get_damping_factor()
         for item_no, (key, item) in enumerate(self.GS.items()):
-            self.GSINV[key] = torch.inverse(self.GS[key]) + (torch.eye(self.GS[key].shape[0]) * 0.001)
+            #eigval, eigvec = torch.symeig(self.GS[key], eigenvectors=True)
+            #med_eig = torch.median(eigval)
+            #eigval[eigval<med_eig] = med_eig
+            #self.GS[key] = eigvec @ torch.diag(eigval) @ eigvec.T
+            self.GSINV[key] = torch.inverse(self.GS[key] + torch.eye(self.GS[key].shape[0]) * self.gamma * self.damping[key])
+            self.check_nan(self.GSINV[key], message=key)
 
+
+    def get_damping_factor(self):
+        items = list(self.GS.items())
+        for item_no, item in enumerate(items):
+            if item_no%2 == 0:
+                self.damping[item[0]] = torch.sqrt(torch.trace(items[item_no][1])/torch.trace(items[item_no+1][1]))
+            else:
+                self.damping[item[0]] = torch.sqrt(torch.trace(items[item_no][1])/torch.trace(items[item_no-1][1]))
 
     def get_inverses_direct_lower(self):
         for item_no, (key, item) in enumerate(self.GS.items()):
@@ -153,6 +192,7 @@ class ModelFIM(nn.Module):
             self.maintain_avgs()
             if tick % args.inv_period == 0:
                 self.get_inverses_direct()
+                print('direct inverse calculated')
         elif args.inv_type == 'direct' and args.subspace_fraction < 1:
             self.maintain_corr_lower(params)
             self.maintain_avgs_lower()

@@ -4,7 +4,6 @@ import torch.nn as nn
 import torch.nn.functional as F
 from fim_model import ModelFIM
 import numpy as np
-from im2col import im2col_indices
 
 
 class CNN(ModelFIM):
