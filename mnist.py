@@ -238,17 +238,17 @@ def main(args=None):
         fp_sum.writelines(['Experiment : {}\tTest Acc = {}\tTest Loss={}\tTrain Acc ={}\tTrain Loss = {}\n'.format(suffix, test_accuracy_list[-1], test_loss_list[-1], train_accuracy_list[-1], train_loss_list[-1])])
 
 if __name__ == '__main__':
-    if True:
+    if False:
         main()
     else:
         parser = argument_parser()
         args = parser.parse_args()
-        for gamma in [0.5,0.6,0.7,0.8,0.9]:
-            for lr in [0.5,0.4,0.2,0.1]:
-                for opt in ['ngd']:#, 'sgd', 'adadelta']:
-                    for subspace_fraction in [0.1,0.2,0.4,0.8]:
-                        for inv_period in [10,50,100]:
-                            for proj_period in [10,50,100]:
+        for gamma in [0.7,0.8]:
+            for lr in [0.5,0.1]:
+                for opt in ['ngd', 'sgd']:#, 'sgd', 'adadelta']:
+                    for subspace_fraction in [0.1,0.8]:
+                        for inv_period in [50]:
+                            for proj_period in [50]:
                                 for inv_type in ['direct', 'recursive']:
                                     args.gamma = gamma
                                     args.lr = lr
