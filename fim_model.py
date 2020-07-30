@@ -28,6 +28,10 @@ class ModelFIM(nn.Module):
 
         self.GSINV = {}
         self.damping = {}
+        self.corr_curr = {}
+        self.corr_curr_lower_proj = {}
+        self.corr_curr_lower = {}
+
         self.P = {}
         for item_no, (key, item) in enumerate(self.GS.items()):
             self.GSINV[key] = self.GS[key]
@@ -35,10 +39,11 @@ class ModelFIM(nn.Module):
             eigvec_subspace = self.GS[key][:, -subspace_size:]
             self.P[key] = eigvec_subspace
             self.damping[key] = 1
+            self.corr_curr[key] = None
+            self.corr_curr_lower_proj[key] = None
+            self.corr_curr_lower[key] = None
 
-        self.corr_curr = [None]*len(self.GS)
-        self.corr_curr_lower_proj = [None] * len(self.GS)
-        self.corr_curr_lower = [None] * len(self.GS)
+
         self.tick = 0
         self.gamma = 0.1
 
@@ -56,6 +61,13 @@ class ModelFIM(nn.Module):
         #cond_num = LA.cond(self.GS[key].numpy(), 2) / LA.cond(self.GS[key].numpy(), -2)
         #if cond_num > 10:
         #    self.GS[key] = torch.eye(self.GS[key].shape[0])
+
+    def track_gs(self, func, dict_to_use=None):
+        return
+        if not dict_to_use:
+            dict_to_use = self.GS
+        for item_no, (key, item) in enumerate(dict_to_use.items()):
+            print('{} : GS[{}] MAX = {}, MIN = {}, multiplier = {}'.format(func, key, dict_to_use[key].flatten().max(), dict_to_use[key].flatten().min(), self.spatial_sizes[key] * self.batch_sizes[key]))
 
     def forward(self, X):
         raise Exception('Inherit this class')
@@ -110,32 +122,50 @@ class ModelFIM(nn.Module):
         return GS
 
     def maintain_corr(self, params):
+        self.track_gs('maintain_corr before')
+
         for item_no, (key, item) in enumerate(self.GS.items()):
+
             if item_no%2 == 0:
-                self.corr_curr[item_no] = params[item_no].T  @ (params[item_no] / params[item_no].shape[0])
+                self.corr_curr[key] = params[item_no].T  @ (params[item_no] / params[item_no].shape[0])
             else:
-                self.corr_curr[item_no] = params[item_no].T  @ params[item_no]
+                self.corr_curr[key] = params[item_no].T  @ params[item_no]
             #self.check_nan(self.corr_curr[item_no], message=key)
+            #multiplier = self.spatial_sizes[key]
+            #params_temp = params[item_no] * multiplier
+            #self.corr_curr[key] = params_temp.T @ (params_temp * 1 / (self.batch_sizes[key]))
+            #if key=='GAM0_AVG':
+            #    with open('GAM0_AVG','w') as fid:
+            #        params[item_no].tofile(fid,'\n','%f')
+            #print('MAX(param[{}]) = {}, MAX(corr_curr[{}]) = {}, spatial_size = {}'.format(key, params[item_no].flatten().max(), key, self.corr_curr[key].flatten().max(), self.spatial_sizes[key]))
+            #print('param[{}].shape = {}, corr_curr[{}] = {}'.format(item_no, params[item_no].shape, key, self.corr_curr[key].shape))
+            #if np.isnan(self.corr_curr[key]).any():
+            #    print(params[item_no])
+            #    raise Exception('key={} is nan'.format(key))
+
+        self.track_gs('maintain_corr after', dict_to_use=self.corr_curr)
+
 
     def maintain_corr_lower(self, params):
         for item_no, (key, item) in enumerate(self.GS.items()):
-            self.corr_curr_lower_proj[item_no] = self.project_vec_to_lower_space(params[item_no], key)
-            self.corr_curr_lower[item_no] = self.corr_curr_lower_proj[item_no].T @ self.corr_curr_lower_proj[item_no]
+            self.corr_curr_lower_proj[key] = self.project_vec_to_lower_space(params[item_no], key)
+            self.corr_curr_lower[key] = self.corr_curr_lower_proj[key].T @ self.corr_curr_lower_proj[key]
+        self.track_gs('maintain_corr after', dict_to_use=self.corr_curr_lower)
 
     def maintain_avgs(self):
-        alpha = 0.95
+        self.track_gs('maintain_avgs before')
+        alpha = min(1 - 1 / (self.tick+1), 0.95)
         for item_no, (key, item) in enumerate(self.GS.items()):
             #print('corr_curr[{}].shape = {}, GS.shape[{}] = {}'.format(item_no, corr_curr[item_no].shape, key, self.GS[key].shape))
-            self.GS[key] = alpha * self.GS[key] + (1 - alpha) * self.corr_curr[item_no]
+            self.GS[key] = alpha * self.GS[key] + (1 - alpha) * self.corr_curr[key]
             self.check_nan(self.GS[key], message=key)
-
-
+        self.track_gs('maintain_avgs after')
 
     def maintain_avgs_lower(self):
         alpha = 0.95
         for item_no, (key, item) in enumerate(self.GS.items()):
             #print('corr_curr[{}].shape = {}, GS.shape[{}] = {}'.format(item_no, corr_curr[item_no].shape, key, self.GS[key].shape))
-            self.GSLOWER[key] = alpha * self.GSLOWER[key] + (1 - alpha) * self.GSLOWER[key]
+            self.GSLOWER[key] = alpha * self.GSLOWER[key] + (1 - alpha) * self.corr_curr_lower[key]
 
 
     def get_invs_recursively(self):
@@ -145,7 +175,7 @@ class ModelFIM(nn.Module):
 
     def get_invs_recursively_lower(self):
         for item_no, (key, item) in enumerate(self.GS.items()):
-            XLOWER = self.corr_curr_lower_proj[item_no]
+            XLOWER = self.corr_curr_lower_proj[key]
             self.GSLOWERINV[key] = self.matrix_inv_lemma(XLOWER, self.GSLOWERINV[key], key=key)
 
 
@@ -159,6 +189,7 @@ class ModelFIM(nn.Module):
             self.GSINV[key] = torch.inverse(self.GS[key] + torch.eye(self.GS[key].shape[0]) * self.gamma * self.damping[key])
             self.check_nan(self.GSINV[key], message=key)
 
+        self.track_gs('get_inverses_direct after', dict_to_use=self.GSINV)
 
     def get_damping_factor(self):
         items = list(self.GS.items())
@@ -170,7 +201,7 @@ class ModelFIM(nn.Module):
 
     def get_inverses_direct_lower(self):
         for item_no, (key, item) in enumerate(self.GS.items()):
-            GSPROJINV = torch.inverse(self.GSLOWER[key])# + np.eye(GSPROJ.shape[0]) * 0.001)
+            GSPROJINV = torch.inverse(self.GSLOWER[key] + torch.eye(self.GSLOWER[key].shape[0]) * 0.001)
             self.GSINV[key] = self.project_mtx_To_higher_space(GSPROJINV, key)
 
 
