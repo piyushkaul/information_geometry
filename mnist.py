@@ -249,22 +249,44 @@ if __name__ == '__main__':
     else:
         parser = argument_parser()
         args = parser.parse_args()
-        for gamma in [0.7,0.8]:
-            for lr in [0.5,0.1]:
-                for opt in ['ngd', 'sgd']:#, 'sgd', 'adadelta']:
-                    for subspace_fraction in [0.1,0.8]:
-                        for inv_period in [50]:
-                            for proj_period in [50]:
-                                for inv_type in ['direct', 'recursive']:
-                                    args.gamma = gamma
-                                    args.lr = lr
-                                    args.optimizer = opt
-                                    args.subspace_fraction = subspace_fraction
-                                    args.inv_period = inv_period
-                                    args.proj_period = proj_period
-                                    args.inv_type = inv_type
-                                    try:
-                                        main(args)
-                                    except:
-                                        print("An exception occurred")
+        for model_type in ['cnn']:#['mlp', 'cnn']
+            for gamma in [0.8]:
+                for lr in [0.5]:
+                    for opt in ['ngd', 'sgd']:#, 'sgd', 'adadelta']:
+                        if opt == 'sgd':
+                            args.gamma = gamma
+                            args.lr = lr
+                            args.optimizer = opt
+                            args.subspace_fraction = 1
+                            args.inv_period = 0
+                            args.proj_period = 0
+                            args.inv_type = 'direct'
+                            if model_type == 'cnn':
+                                args.cnn_model = True
+                            else:
+                                args.cnn_model = False
+                            try:
+                                main(args)
+                            except:
+                                print("An exception occurred")
+                        else:
+                            for subspace_fraction in [0.1,0.8,1]:
+                                for inv_period in [50]:
+                                    for proj_period in [50]:
+                                        for inv_type in ['direct', 'recursive']:
+                                            if model_type == 'cnn':
+                                                args.cnn_model = True
+                                            else:
+                                                args.cnn_model = False
+                                            args.gamma = gamma
+                                            args.lr = lr
+                                            args.optimizer = opt
+                                            args.subspace_fraction = subspace_fraction
+                                            args.inv_period = inv_period
+                                            args.proj_period = proj_period
+                                            args.inv_type = inv_type
+                                            try:
+                                                main(args)
+                                            except:
+                                                print("An exception occurred")
 
