@@ -49,6 +49,10 @@ def train(args, model, device, train_loader, optimizer, epoch, train_loss_list, 
                 epoch, batch_idx * len(data), len(train_loader.dataset),
                 100. * batch_idx / len(train_loader), loss.item()))
 
+        #if batch_idx == 10:
+        #    break
+
+
     train_loss_list.append(running_loss/len(train_loader.dataset))
     train_accuracy_list.append(100. * correct / len(train_loader.dataset))
 
@@ -199,6 +203,8 @@ def main(args=None):
         train(args, model, device, train_loader, optimizer, epoch, train_loss_list, train_accuracy_list, cnn_model=args.cnn_model)
         test(model, device, test_loader,  test_loss_list, test_accuracy_list, cnn_model=args.cnn_model)
         scheduler.step()
+        model.epoch_bookkeeping()
+        model.dump_eigval_arrays()
 
     plt.subplot(211)
     plt.plot(range(len(test_loss_list)), test_loss_list, 'r', label='test loss')
@@ -238,7 +244,7 @@ def main(args=None):
         fp_sum.writelines(['Experiment : {}\tTest Acc = {}\tTest Loss={}\tTrain Acc ={}\tTrain Loss = {}\n'.format(suffix, test_accuracy_list[-1], test_loss_list[-1], train_accuracy_list[-1], train_loss_list[-1])])
 
 if __name__ == '__main__':
-    if False:
+    if True:
         main()
     else:
         parser = argument_parser()
@@ -257,4 +263,8 @@ if __name__ == '__main__':
                                     args.inv_period = inv_period
                                     args.proj_period = proj_period
                                     args.inv_type = inv_type
-                                    main(args)
+                                    try:
+                                        main(args)
+                                    except:
+                                        print("An exception occurred")
+

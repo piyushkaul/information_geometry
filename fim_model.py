@@ -1,55 +1,75 @@
 import torch.nn as nn
 from collections import OrderedDict
 import torch
-from numpy import linalg as LA
+import numpy as np
 import inspect
+import matplotlib.pyplot as plt
+
 
 class ModelFIM(nn.Module):
     def __init__(self, subspace_fraction=0.1):
         super(ModelFIM, self).__init__()
         self.subspace_fraction = subspace_fraction
-        self.linear1 = nn.Linear(784, 250)
-        self.linear2 = nn.Linear(250, 100)
-        self.linear3 = nn.Linear(100, 10)
+        #self.GS = OrderedDict() #dummy here
+        #self.common_init()
 
-        self.GS = OrderedDict()
-        self.GS['PSI0_AVG'] = torch.eye((784))
-        self.GS['GAM0_AVG'] = torch.eye((250))
-        self.GS['PSI1_AVG'] = torch.eye((250))
-        self.GS['GAM1_AVG'] = torch.eye((100))
-        self.GS['PSI2_AVG'] = torch.eye((100))
-        self.GS['GAM2_AVG'] = torch.eye((10))
-
-        self.GSLOWER = {}
-        self.GSLOWERINV = {}
+    def common_init(self):
+        self.GSLOWER = OrderedDict()
+        self.GSLOWERINV = OrderedDict()
         for key, val in self.GS.items():
             self.GSLOWER[key] = torch.eye(self.get_subspace_size(self.GS[key].shape[0]))
             self.GSLOWERINV[key] = torch.eye(self.get_subspace_size(self.GS[key].shape[0]))
 
-        self.GSINV = {}
-        self.damping = {}
-        self.corr_curr = {}
-        self.corr_curr_lower_proj = {}
-        self.corr_curr_lower = {}
+        self.GSINV = OrderedDict()
 
-        self.P = {}
+        self.P = OrderedDict()
+        self.corr_curr = OrderedDict()
+        self.corr_curr_lower_proj = OrderedDict()
+        self.corr_curr_lower = OrderedDict()
+        self.spatial_sizes = OrderedDict()
+        self.batch_sizes = OrderedDict()
+        self.eigval_f_inv_list_per_epoch = [] #list[epoch] of list[per layer] of eigval arrays for all epochs.
+        self.eigval_f_inv_list = [] #list [per layer] of eigval arrays current epoch
+
         for item_no, (key, item) in enumerate(self.GS.items()):
             self.GSINV[key] = self.GS[key]
             subspace_size = self.get_subspace_size(self.GSINV[key].shape[0])
             eigvec_subspace = self.GS[key][:, -subspace_size:]
             self.P[key] = eigvec_subspace
-            self.damping[key] = 1
             self.corr_curr[key] = None
             self.corr_curr_lower_proj[key] = None
             self.corr_curr_lower[key] = None
-
+            self.spatial_sizes[key] = 1
+            self.batch_sizes[key] = 1
+            if item_no%2==0:
+                self.eigval_f_inv_list_per_epoch.append([])
 
         self.tick = 0
         self.gamma = 0.1
+        self.epoch_no = 0
 
+
+    def epoch_bookkeeping(self):
+
+        for item_no, item in enumerate(self.eigval_f_inv_list_per_epoch):
+            features = np.sort(self.eigval_f_inv_list[item_no]).tolist()
+            features.insert(0,self.epoch_no)
+            if self.epoch_no == 0:
+                header = ['epoch']
+                for itr in range(len(features)-1):
+                    header.append('COL'+str(itr))
+                self.eigval_f_inv_list_per_epoch[item_no].append(header)
+            self.eigval_f_inv_list_per_epoch[item_no].append(features)
+        self.epoch_no = self.epoch_no + 1
+
+    def dump_eigval_arrays(self):
+        import csv
+        for list_idx, list_item in enumerate(self.eigval_f_inv_list_per_epoch):
+            with open('eigval_arrays' + str(list_idx) + '.csv', 'w', newline='') as f:
+                csvwriter = csv.writer(f)
+                csvwriter.writerows(list_item)
 
     def check_nan(self, tensor, message=None):
-        return
         if torch.isnan(tensor).any():
             raise Exception('Got a Nan for tensor = {}', message)
         #print('For Tensor {}: max={}'.format(message, torch.max(tensor.flatten())))
@@ -84,6 +104,22 @@ class ModelFIM(nn.Module):
     def projection_matrix_update(self):
         if self.subspace_fraction == 1:
             return
+        #gs_keys=list(self.GS.keys())
+        gs_values = list(self.GS.values())
+        self.eigval_f_inv_list = []
+        for item_no, (key, item) in enumerate(self.GS.items()):
+             if item_no%2==0:
+                 eigval_psi, eigvec_psi = torch.symeig(gs_values[item_no], eigenvectors=False)
+                 eigval_gam, eigvec_gam = torch.symeig(gs_values[item_no+1], eigenvectors=False)
+                 eigval_f_inv = np.kron(eigval_psi.numpy(), eigval_gam.numpy())
+                 #print('eigval_f_inv = {}'.format(eigval_f_inv))
+                 self.eigval_f_inv_list.append(eigval_f_inv)
+             #    plt.plot(range(len(eigval_f_inv)), eigval_f_inv, 'r', label='test loss')
+             #    plt.xlabel('Eigenvalues')
+             #    plt.ylabel('Loss')
+             #    plt.legend(loc=2, fontsize="small")
+             #    plt.show()
+
         for item_no, (key, item) in enumerate(self.GS.items()):
             eigval, eigvec = torch.symeig(self.GS[key], eigenvectors=True)
             subspace_size = self.get_subspace_size(eigvec.shape[0])
@@ -214,6 +250,8 @@ class ModelFIM(nn.Module):
             if True:#tick % args.inv_period == 0:
                 self.get_invs_recursively()
         elif args.inv_type == 'recursive' and args.subspace_fraction < 1:
+            self.maintain_corr(params)
+            self.maintain_avgs()
             self.maintain_corr_lower(params)
             self.maintain_avgs_lower()
             if True:#tick % args.inv_period == 0:

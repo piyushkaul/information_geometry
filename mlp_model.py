@@ -20,34 +20,8 @@ class MLP(ModelFIM):
         self.GS['GAM1_AVG'] = torch.eye((100))
         self.GS['PSI2_AVG'] = torch.eye((100))
         self.GS['GAM2_AVG'] = torch.eye((10))
+        super(MLP, self).common_init()
 
-        self.GSLOWER = {}
-        self.GSLOWERINV = {}
-        for key, val in self.GS.items():
-            self.GSLOWER[key] = torch.eye(self.get_subspace_size(self.GS[key].shape[0]))
-            self.GSLOWERINV[key] = torch.eye(self.get_subspace_size(self.GS[key].shape[0]))
-
-        self.GSINV = {}
-
-        self.P = {}
-        self.corr_curr = {}
-        self.corr_curr_lower_proj = {}
-        self.corr_curr_lower = {}
-        self.spatial_sizes = {}
-        self.batch_sizes = {}
-
-        for item_no, (key, item) in enumerate(self.GS.items()):
-            self.GSINV[key] = self.GS[key]
-            subspace_size = self.get_subspace_size(self.GSINV[key].shape[0])
-            eigvec_subspace = self.GS[key][:, -subspace_size:]
-            self.P[key] = eigvec_subspace
-            self.corr_curr[key] = None
-            self.corr_curr_lower_proj[key] = None
-            self.corr_curr_lower[key] = None
-            self.spatial_sizes[key] = 1
-            self.batch_sizes[key] = 1
-
-        self.tick = 0
 
 
     def forward(self, X):
