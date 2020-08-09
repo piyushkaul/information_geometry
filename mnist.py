@@ -43,6 +43,8 @@ def train(args, model, device, train_loader, optimizer, epoch, train_loss_list, 
             optimizer.step(whitening_matrices=model.GSINV)
         else:
             optimizer.step()
+        if np.isnan(loss.item()):
+            raise Exception('Nan in loss')
 
         if batch_idx % args.log_interval == 0:
             print('Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}'.format(
@@ -227,7 +229,7 @@ def main(args=None):
 
     suffix = date_time + '_' + args.optimizer + '_lr_' + str(args.lr) + '_gamma_' + str(args.gamma) + '_frac_' + \
              str(args.subspace_fraction) + '_' + args.dataset + '_' + args.inv_type + '_inv_period_' + str(args.inv_period)\
-             + '_proj_period_' + str(args.proj_period)
+             + '_proj_period_' + str(args.proj_period) + '_cnn_model_' + str(args.cnn_model)
 
 
 
@@ -246,14 +248,14 @@ def main(args=None):
         fp_sum.writelines(['Experiment : {}\tTest Acc = {}\tTest Loss={}\tTrain Acc ={}\tTrain Loss = {}\n'.format(suffix, test_accuracy_list[-1], test_loss_list[-1], train_accuracy_list[-1], train_loss_list[-1])])
 
 if __name__ == '__main__':
-    if True:
+    if False:
         main()
     else:
         parser = argument_parser()
         args = parser.parse_args()
-        for model_type in ['cnn']:#['mlp', 'cnn']
-            for gamma in [0.8]:
-                for lr in [0.5]:
+        for model_type in ['cnn', 'mlp']:
+            for gamma in [0.8, 0.7]:
+                for lr in [0.1, 0.5]:
                     for opt in ['ngd', 'sgd']:#, 'sgd', 'adadelta']:
                         if opt == 'sgd':
                             args.gamma = gamma
