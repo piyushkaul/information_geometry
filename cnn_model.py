@@ -5,9 +5,9 @@ import torch.nn.functional as F
 from fim_model import ModelFIM
 
 class CNN(ModelFIM):
-    def __init__(self, subspace_fraction=0.1):
-        super(CNN, self).__init__()
-        self.subspace_fraction = subspace_fraction
+    def __init__(self, args):
+        super(CNN, self).__init__(args)
+        self.subspace_fraction = args.subspace_fraction
         self.conv1 = nn.Conv2d(1, 32, 3, 1)
         self.conv2 = nn.Conv2d(32, 64, 3, 1)
         #self.dropout1 = nn.Dropout2d(0.25)
@@ -24,7 +24,7 @@ class CNN(ModelFIM):
         self.GS['GAM2_AVG'] = torch.eye((128))
         self.GS['PSI3_AVG'] = torch.eye((128))
         self.GS['GAM3_AVG'] = torch.eye((10))
-        super(CNN, self).common_init()
+        super(CNN, self).common_init(args)
         self.a0 = None
         self.s0 = None
         self.a1 = None

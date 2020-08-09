@@ -39,7 +39,7 @@ def train(args, model, device, train_loader, optimizer, epoch, train_loss_list, 
             params = model.get_grads()
             model.maintain_invs(params, args)
             if batch_idx % args.proj_period == 0:
-                model.projection_matrix_update()
+                model.projection_matrix_update(params)
             optimizer.step(whitening_matrices=model.GSINV)
         else:
             optimizer.step()
@@ -107,6 +107,8 @@ def argument_parser():
                         help='For Saving the current Model')
     parser.add_argument('--cnn-model', action='store_true', default=False,
                         help='Use CNN model now')
+    parser.add_argument('--random-projection', action='store_true', default=False,
+                        help='Random Projection')
     parser.add_argument('--optimizer', type=str, default='sgd',
                         help='Optimizer to Use [sgd|adadelta|ngd]')
     parser.add_argument('--dataset', type=str, default='mnist',
@@ -191,9 +193,9 @@ def main(args=None):
     kwargs = {'num_workers': 1, 'pin_memory': True} if use_cuda else {}
 
     if args.cnn_model:
-        model = CNN(subspace_fraction=args.subspace_fraction).to(device)
+        model = CNN(args).to(device)
     else:
-        model = MLP(subspace_fraction=args.subspace_fraction).to(device)
+        model = MLP(args).to(device)
 
     train_loader, test_loader = get_data_loader(args, kwargs)
     optimizer = select_optimizer(model, args.optimizer, args.lr)
@@ -203,8 +205,8 @@ def main(args=None):
         train(args, model, device, train_loader, optimizer, epoch, train_loss_list, train_accuracy_list, cnn_model=args.cnn_model)
         test(model, device, test_loader,  test_loss_list, test_accuracy_list, cnn_model=args.cnn_model)
         scheduler.step()
-        model.epoch_bookkeeping()
-        model.dump_eigval_arrays()
+        #model.epoch_bookkeeping()
+        #model.dump_eigval_arrays()
 
     plt.subplot(211)
     plt.plot(range(len(test_loss_list)), test_loss_list, 'r', label='test loss')

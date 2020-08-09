@@ -7,13 +7,13 @@ import matplotlib.pyplot as plt
 
 
 class ModelFIM(nn.Module):
-    def __init__(self, subspace_fraction=0.1):
+    def __init__(self, args):
         super(ModelFIM, self).__init__()
-        self.subspace_fraction = subspace_fraction
+        self.subspace_fraction = args.subspace_fraction
         #self.GS = OrderedDict() #dummy here
         #self.common_init()
 
-    def common_init(self):
+    def common_init(self, args):
         self.GSLOWER = OrderedDict()
         self.GSLOWERINV = OrderedDict()
         for key, val in self.GS.items():
@@ -47,6 +47,11 @@ class ModelFIM(nn.Module):
         self.tick = 0
         self.gamma = 0.1
         self.epoch_no = 0
+
+        if args.random_projection:
+            self.random_projection = True
+        else:
+            self.random_projection = False
 
 
     def epoch_bookkeeping(self):
@@ -101,7 +106,25 @@ class ModelFIM(nn.Module):
     def get_grads(self):
         raise Exception('Inherit this class')
 
-    def projection_matrix_update(self):
+
+    def projection_matrix_update(self, params):
+        if self.random_projection:
+            self.random_projection_matrix_update(params)
+        else:
+            self.orthogonal_projection_matrix_update(params)
+
+
+    def random_projection_matrix_update(self, params):
+        for item_no, (key, item) in enumerate(self.GS.items()):
+            #eigval, eigvec = torch.symeig(self.GS[key], eigenvectors=True)
+            num_components = params[item_no].shape[0]
+            num_features = params[item_no].shape[1]
+            subspace_size = self.get_subspace_size(num_features)
+            P = np.random.normal(loc=0, scale=1.0 / np.sqrt(subspace_size), size=(subspace_size, num_features))
+            self.P[key] = torch.from_numpy(P.T.astype(np.float32))
+            #print('random_projection_matrix_update: size of P[{}] = {}'.format(key, self.P[key].shape))
+
+    def orthogonal_projection_matrix_update(self, params):
         if self.subspace_fraction == 1:
             return
         #gs_keys=list(self.GS.keys())
@@ -125,6 +148,7 @@ class ModelFIM(nn.Module):
             subspace_size = self.get_subspace_size(eigvec.shape[0])
             eigvec_subspace = eigvec[:, -subspace_size:]
             self.P[key] = eigvec_subspace
+            print('orthogonal_projection_matrix_update: size of P[{}] = {}'.format(key, self.P[key].shape))
 
     def project_vec_to_lower_space(self, matrix, key):
         #print('project_to_lower_space: Shape of P[{}] = {}. Shape of matrix = {}'.format(key, self.P[key].shape, matrix.shape))
@@ -200,7 +224,7 @@ class ModelFIM(nn.Module):
     def maintain_avgs_lower(self):
         alpha = 0.95
         for item_no, (key, item) in enumerate(self.GS.items()):
-            #print('corr_curr[{}].shape = {}, GS.shape[{}] = {}'.format(item_no, corr_curr[item_no].shape, key, self.GS[key].shape))
+            #print('corr_curr[{}].shape = {}, GS.shape[{}] = {}'.format(item_no, self.corr_curr_lower[key].shape, key, self.GSLOWER[key].shape))
             self.GSLOWER[key] = alpha * self.GSLOWER[key] + (1 - alpha) * self.corr_curr_lower[key]
 
 

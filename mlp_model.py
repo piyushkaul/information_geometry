@@ -6,9 +6,9 @@ import torch
 
 
 class MLP(ModelFIM):
-    def __init__(self, subspace_fraction=0.1):
-        super(MLP, self).__init__()
-        self.subspace_fraction = subspace_fraction
+    def __init__(self, args):
+        super(MLP, self).__init__(args)
+        self.subspace_fraction = args.subspace_fraction
         self.linear1 = nn.Linear(784, 250)
         self.linear2 = nn.Linear(250, 100)
         self.linear3 = nn.Linear(100, 10)
@@ -20,7 +20,7 @@ class MLP(ModelFIM):
         self.GS['GAM1_AVG'] = torch.eye((100))
         self.GS['PSI2_AVG'] = torch.eye((100))
         self.GS['GAM2_AVG'] = torch.eye((10))
-        super(MLP, self).common_init()
+        super(MLP, self).common_init(args)
 
 
 
