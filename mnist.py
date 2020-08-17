@@ -35,7 +35,7 @@ def train(args, model, device, train_loader, optimizer, epoch, train_loss_list, 
         running_loss += loss.item()
 
         if isinstance(optimizer, NGD):
-            #nn.utils.clip_grad_norm_(model.parameters(), 0.000001),
+            #nn.utils.clip_grad_norm_(model.parameters(), 1),
             params = model.get_grads()
             model.maintain_invs(params, args)
             if batch_idx % args.proj_period == 0:
@@ -67,7 +67,7 @@ def test(model, device, test_loader, test_loss_list, accuracy_loss_list, cnn_mod
         for data, target in test_loader:
             data, target = data.to(device), target.to(device)
             if not cnn_model:
-                data = np.reshape(data, (data.shape[0], -1))
+                data = torch.reshape(data, (data.shape[0], -1))
             output = model(data)
             test_loss += F.nll_loss(output, target, reduction='sum').item()  # sum up batch loss
             pred = output.argmax(dim=1, keepdim=True)  # get the index of the max log-probability
@@ -123,6 +123,10 @@ def argument_parser():
                         help='method of calculation of inverse')
     parser.add_argument('--proj-period', type=int, default=50,
                         help='batches after which projection is taken')
+    parser.add_argument('--grid-search', action='store_true', default=False,
+                        help='Grid Search')
+    parser.add_argument('--dump-eigenvalues', action='store_true', default=False,
+                        help='Dump Eigenvalues')
 
 
     return parser
@@ -182,11 +186,22 @@ def main(args=None):
     if not args:
         parser = argument_parser()
         args = parser.parse_args()
+    print(args)
     test_loss_list = []
     test_accuracy_list = []
     train_loss_list = []
     train_accuracy_list = []
+    if torch.cuda.is_available():
+        print('Cuda is available')
+    else:
+        print('Cuda is not available')
+        
     use_cuda = not args.no_cuda and torch.cuda.is_available()
+
+    if use_cuda:
+        print('Cuda is used')
+    else:
+        print('Cuda is not used')
 
     torch.manual_seed(args.seed)
 
@@ -198,6 +213,7 @@ def main(args=None):
         model = CNN(args).to(device)
     else:
         model = MLP(args).to(device)
+    #model.test_matrix_inv_lemma()
 
     train_loader, test_loader = get_data_loader(args, kwargs)
     optimizer = select_optimizer(model, args.optimizer, args.lr)
@@ -248,11 +264,11 @@ def main(args=None):
         fp_sum.writelines(['Experiment : {}\tTest Acc = {}\tTest Loss={}\tTrain Acc ={}\tTrain Loss = {}\n'.format(suffix, test_accuracy_list[-1], test_loss_list[-1], train_accuracy_list[-1], train_loss_list[-1])])
 
 if __name__ == '__main__':
-    if False:
-        main()
+    parser = argument_parser()
+    args = parser.parse_args()
+    if not args.grid_search:
+        main(args)
     else:
-        parser = argument_parser()
-        args = parser.parse_args()
         for model_type in ['cnn', 'mlp']:
             for gamma in [0.8, 0.7]:
                 for lr in [0.1, 0.5]:
