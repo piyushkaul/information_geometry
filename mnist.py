@@ -1,5 +1,4 @@
 from __future__ import print_function
-import argparse
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -7,13 +6,15 @@ from torchvision import datasets, transforms
 from torch.optim.lr_scheduler import StepLR
 #import numpy as np
 import matplotlib.pyplot as plt
-from datetime import datetime
 from torch.optim.optimizer import Optimizer, required
 from mlp_model import MLP
 from cnn_model import CNN
 from ngd import NGD
-from ngd import select_optimizer
+from ngd import select_optimizer, maintain_fim
 import numpy as np
+import arguments
+from utils import save_files, get_file_suffix
+import resnet
 
 def train(args, model, device, train_loader, optimizer, epoch, train_loss_list, train_accuracy_list, cnn_model=False):
     model.train()
@@ -36,10 +37,7 @@ def train(args, model, device, train_loader, optimizer, epoch, train_loss_list, 
 
         if isinstance(optimizer, NGD):
             #nn.utils.clip_grad_norm_(model.parameters(), 1),
-            params = model.get_grads()
-            model.maintain_invs(params, args)
-            if batch_idx % args.proj_period == 0:
-                model.projection_matrix_update(params)
+            maintain_fim(model, args, batch_idx)
             optimizer.step(whitening_matrices=model.GSINV)
         else:
             optimizer.step()
@@ -82,54 +80,7 @@ def test(model, device, test_loader, test_loss_list, accuracy_loss_list, cnn_mod
         100. * correct / len(test_loader.dataset)))
 
 
-def save_files(loss_list, tag, suffix):
-    loss_list_np = np.array(loss_list)
-    loss_filename = 'temp/' + tag + suffix + 'txt'
-    loss_list_np.tofile(loss_filename, '\n', '%f')
 
-def argument_parser():
-    parser = argparse.ArgumentParser(description='PyTorch MNIST Example')
-    parser.add_argument('--batch-size', type=int, default=64, metavar='N',
-                        help='input batch size for training (default: 64)')
-    parser.add_argument('--test-batch-size', type=int, default=1000, metavar='N',
-                        help='input batch size for testing (default: 1000)')
-    parser.add_argument('--epochs', type=int, default=15, metavar='N',
-                        help='number of epochs to train (default: 14)')
-    parser.add_argument('--lr', type=float, default=1.0, metavar='LR',
-                        help='learning rate (default: 1.0)')
-    parser.add_argument('--gamma', type=float, default=0.7, metavar='M',
-                        help='Learning rate step gamma (default: 0.7)')
-    parser.add_argument('--no-cuda', action='store_true', default=False,
-                        help='disables CUDA training')
-    parser.add_argument('--seed', type=int, default=1, metavar='S',
-                        help='random seed (default: 1)')
-    parser.add_argument('--log-interval', type=int, default=10, metavar='N',
-                        help='how many batches to wait before logging training status')
-    parser.add_argument('--save-model', action='store_true', default=False,
-                        help='For Saving the current Model')
-    parser.add_argument('--cnn-model', action='store_true', default=False,
-                        help='Use CNN model now')
-    parser.add_argument('--random-projection', action='store_true', default=False,
-                        help='Random Projection')
-    parser.add_argument('--optimizer', type=str, default='sgd',
-                        help='Optimizer to Use [sgd|adadelta|ngd]')
-    parser.add_argument('--dataset', type=str, default='mnist',
-                        help='Dataset to Use. [mnist|fashion_mnist]')
-    parser.add_argument('--subspace-fraction', type=float, default=0.1,
-                        help='Fraction of Subspace to use for NGD 0 < frac < 1')
-    parser.add_argument('--inv-period', type=int, default=50,
-                        help='batches after which inverse is calculated')
-    parser.add_argument('--inv-type', type=str, default='direct',
-                        help='method of calculation of inverse')
-    parser.add_argument('--proj-period', type=int, default=50,
-                        help='batches after which projection is taken')
-    parser.add_argument('--grid-search', action='store_true', default=False,
-                        help='Grid Search')
-    parser.add_argument('--dump-eigenvalues', action='store_true', default=False,
-                        help='Dump Eigenvalues')
-
-
-    return parser
 
 def mnist_loader(args, kwargs):
     train_loader = torch.utils.data.DataLoader(
@@ -172,19 +123,61 @@ def fashion_mnist_loader(args, kwargs):
 
     return train_loader, test_loader
 
+def cifar10_loader(args, kwargs):
+    train_loader = torch.utils.data.DataLoader(
+        datasets.CIFAR10(
+            root='./data/CIFAR10',
+            train=True,
+            download=True,
+            transform=transforms.Compose([
+                transforms.RandomCrop(32, padding=4),
+                transforms.RandomHorizontalFlip(),
+                transforms.ToTensor(),
+                transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
+            ])),
+            batch_size=args.batch_size, shuffle=True, **kwargs)
+
+    test_loader = torch.utils.data.DataLoader(
+        datasets.CIFAR10(
+            root='./data/CIFAR10',
+            train=False,
+            download=True,
+            transform=transforms.Compose([
+                transforms.ToTensor(),
+                transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
+            ])),
+            batch_size=args.batch_size, shuffle=True, **kwargs)
+
+    return train_loader, test_loader
+
 def get_data_loader(args, kwargs):
     if args.dataset == 'mnist':
         train_loader, test_loader = mnist_loader(args, kwargs)
     elif args.dataset == 'fashion_mnist':
         train_loader, test_loader = fashion_mnist_loader(args, kwargs)
+    elif args.dataset == 'cifar10':
+        train_loader, test_loader = cifar10_loader(args, kwargs)
     else:
         raise Exception('Unknown dataset = {}'.format(args.dataset))
     return train_loader, test_loader
 
+def get_model(args):
+    if args.model == 'cnn':
+        model = CNN(args)
+        cnn_type=True
+    elif args.model == 'mlp':
+        model = MLP(args)
+        cnn_type=False
+    elif args.model == 'resnet18':
+        model = resnet.ResNet18(args)
+        cnn_type = True
+    return model, cnn_type
+
+
 def main(args=None):
     # Training settings
     if not args:
-        parser = argument_parser()
+        parser = arguments.argument_parser()
         args = parser.parse_args()
     print(args)
     test_loss_list = []
@@ -209,19 +202,16 @@ def main(args=None):
 
     kwargs = {'num_workers': 1, 'pin_memory': True} if use_cuda else {}
 
-    if args.cnn_model:
-        model = CNN(args).to(device)
-    else:
-        model = MLP(args).to(device)
-    #model.test_matrix_inv_lemma()
+    model, cnn_type = get_model(args)
+    model = model.to(device)
 
     train_loader, test_loader = get_data_loader(args, kwargs)
     optimizer = select_optimizer(model, args.optimizer, args.lr)
     scheduler = StepLR(optimizer, step_size=1, gamma=args.gamma)
 
     for epoch in range(1, args.epochs + 1):
-        train(args, model, device, train_loader, optimizer, epoch, train_loss_list, train_accuracy_list, cnn_model=args.cnn_model)
-        test(model, device, test_loader,  test_loss_list, test_accuracy_list, cnn_model=args.cnn_model)
+        train(args, model, device, train_loader, optimizer, epoch, train_loss_list, train_accuracy_list, cnn_model=cnn_type)
+        test(model, device, test_loader,  test_loss_list, test_accuracy_list, cnn_model=cnn_type)
         scheduler.step()
         #model.epoch_bookkeeping()
         #model.dump_eigval_arrays()
@@ -240,18 +230,10 @@ def main(args=None):
     plt.ylabel('Loss')
     plt.legend(loc=2, fontsize="small")
 
-    now = datetime.now()
-    date_time = now.strftime("%Y_%m_%d_%H_%M_%S")
-
-    suffix = date_time + '_' + args.optimizer + '_lr_' + str(args.lr) + '_gamma_' + str(args.gamma) + '_frac_' + \
-             str(args.subspace_fraction) + '_' + args.dataset + '_' + args.inv_type + '_inv_period_' + str(args.inv_period)\
-             + '_proj_period_' + str(args.proj_period) + '_cnn_model_' + str(args.cnn_model)
-
-
+    suffix = get_file_suffix()
 
     if args.save_model:
         torch.save(model.state_dict(), "mnist_cnn" + suffix + ".pt")
-
 
     plt.savefig('plot' + suffix + '.png')
     plt.clf()
@@ -264,7 +246,7 @@ def main(args=None):
         fp_sum.writelines(['Experiment : {}\tTest Acc = {}\tTest Loss={}\tTrain Acc ={}\tTrain Loss = {}\n'.format(suffix, test_accuracy_list[-1], test_loss_list[-1], train_accuracy_list[-1], train_loss_list[-1])])
 
 if __name__ == '__main__':
-    parser = argument_parser()
+    parser = arguments.argument_parser()
     args = parser.parse_args()
     if not args.grid_search:
         main(args)

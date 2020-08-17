@@ -100,3 +100,9 @@ def select_optimizer(model, optimizer_arg, lr):
     elif optimizer_arg == 'ngd':
         optimizer = NGD(model.parameters(), lr=lr)
     return optimizer
+
+def maintain_fim(model, args, batch_idx):
+    params = model.get_grads()
+    model.maintain_invs(params, args)
+    if batch_idx % args.proj_period == 0:
+        model.projection_matrix_update(params)
