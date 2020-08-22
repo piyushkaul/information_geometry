@@ -6,7 +6,7 @@ def get_file_suffix(args):
     date_time = now.strftime("%Y_%m_%d_%H_%M_%S")
     suffix = date_time + '_' + args.optimizer + '_lr_' + str(args.lr) + '_gamma_' + str(args.gamma) + '_frac_' + \
              str(args.subspace_fraction) + '_' + args.dataset + '_' + args.inv_type + '_inv_period_' + str(args.inv_period) \
-             + '_proj_period_' + str(args.proj_period) + '_cnn_model_' + str(args.cnn_model)
+             + '_proj_period_' + str(args.proj_period) + '_model_' + str(args.model)
     return suffix
 
 def save_files(loss_list, tag, suffix):

@@ -42,8 +42,7 @@ class Hook():
         #    print('input is none')
         #    return
         print('tag = {}, backward = {}'.format(tag, self.backward))
-        if tag == 'linear1_input' and self.backward:
-            print('reached')
+
         if self.backward:
             direction = 'backward'
         else:
@@ -136,13 +135,19 @@ class ModelFIM(nn.Module):
         #self.common_init()
 
     def register_hooks_(self, model, hookF, hookB):
+        #print('register hooks called')
+        #print('----------------------START--------------------')
+        #print(model)
+        #print('-----------------------END---------------------')
         for name, layer in list(model._modules.items()):
+            #print('register_hooks: layer name = {}'.format(name))
             tl = type(layer)
             print(tl)
             if isinstance(layer, (nn.Conv2d, nn.Linear)):
                 hookF.append(Hook(layer,  name=name))
                 hookB.append(Hook(layer,  name=name, backward=True))
-            if isinstance(layer, nn.Sequential):
+            if not(len(layer._modules.items()) == 0):
+                #print('register_hooks: layer name recursion')
                 hookF, hookB = self.register_hooks_(layer, hookF, hookB)
         return hookF, hookB
 
@@ -177,6 +182,7 @@ class ModelFIM(nn.Module):
         return params
 
     def initialize_matrices(self, params):
+        print('num_params = {}'.format(len(params)))
         for item_no, item in enumerate(params):
             if item_no%2 == 0:
                 name = 'PSI' + str(item_no//2) + '_AVG'
@@ -201,6 +207,7 @@ class ModelFIM(nn.Module):
             self.params[key] = None
             if item_no%2==0:
                 self.eigval_f_inv_list_per_epoch.append([])
+        self.track_gs('initialize_matrices')
 
     def common_init(self, args):
         self.use_cuda = not args.no_cuda and torch.cuda.is_available()
@@ -259,12 +266,14 @@ class ModelFIM(nn.Module):
         if torch.isnan(tensor).any():
             raise Exception('Got a Nan for tensor = {}', message)
 
-    def track_gs(self, func, dict_to_use=None):
-        return
+    def track_gs(self, func='dummy', dict_to_use=None):
         if not dict_to_use:
             dict_to_use = self.GS
         for item_no, (key, item) in enumerate(dict_to_use.items()):
-            print('{} : GS[{}] MAX = {}, MIN = {}, multiplier = {}'.format(func, key, dict_to_use[key].flatten().max(), dict_to_use[key].flatten().min(), self.spatial_sizes[key] * self.batch_sizes[key]))
+            print('{} : GS[{}] SHAPE={}'.format(func, key, dict_to_use[key].shape))
+
+        #for item_no, (key, item) in enumerate(dict_to_use.items()):
+        #    print('{} : GS[{}] MAX = {}, MIN = {}, multiplier = {}'.format(func, key, dict_to_use[key].flatten().max(), dict_to_use[key].flatten().min(), self.spatial_sizes[key] * self.batch_sizes[key]))
 
     def forward(self, X):
         raise Exception('Inherit this class')
@@ -394,7 +403,7 @@ class ModelFIM(nn.Module):
                 self.params[key] = params[item_no].clone()
 
     def maintain_corr(self, params):
-        self.track_gs('maintain_corr before')
+        #self.track_gs('maintain_corr before')
 
         for item_no, (key, item) in enumerate(self.GS.items()):
 
@@ -415,23 +424,23 @@ class ModelFIM(nn.Module):
             #    print(params[item_no])
             #    raise Exception('key={} is nan'.format(key))
 
-        self.track_gs('maintain_corr after', dict_to_use=self.corr_curr)
+        #self.track_gs('maintain_corr after', dict_to_use=self.corr_curr)
 
 
     def maintain_corr_lower(self, params):
         for item_no, (key, item) in enumerate(self.GS.items()):
             self.corr_curr_lower_proj[key] = self.project_vec_to_lower_space(params[item_no], key)
             self.corr_curr_lower[key] = self.corr_curr_lower_proj[key].T @ self.corr_curr_lower_proj[key]
-        self.track_gs('maintain_corr after', dict_to_use=self.corr_curr_lower)
+        #self.track_gs('maintain_corr after', dict_to_use=self.corr_curr_lower)
 
     def maintain_avgs(self):
-        self.track_gs('maintain_avgs before')
+        #self.track_gs('maintain_avgs before')
         alpha = min(1 - 1 / (self.tick+1), 0.95)
         for item_no, (key, item) in enumerate(self.GS.items()):
             #print('corr_curr[{}].shape = {}, GS.shape[{}] = {}'.format(item_no, corr_curr[item_no].shape, key, self.GS[key].shape))
             self.GS[key] = alpha * self.GS[key] + (1 - alpha) * self.corr_curr[key]
             self.check_nan(self.GS[key], message=key)
-        self.track_gs('maintain_avgs after')
+        #self.track_gs('maintain_avgs after')
 
     def maintain_avgs_lower(self):
         alpha = 0.95
@@ -467,7 +476,7 @@ class ModelFIM(nn.Module):
             self.GSINV[key] = torch.inverse(self.GS[key] + torch.eye(self.GS[key].shape[0], device=self.device) * self.gamma * self.damping[key])
             self.check_nan(self.GSINV[key], message=key)
 
-        self.track_gs('get_inverses_direct after', dict_to_use=self.GSINV)
+        #self.track_gs('get_inverses_direct after', dict_to_use=self.GSINV)
 
     def get_damping_factor(self):
         items = list(self.GS.items())
@@ -510,7 +519,6 @@ class ModelFIM(nn.Module):
             self.maintain_avgs()
             if tick % args.inv_period == 0:
                 self.get_inverses_direct()
-                print('direct inverse calculated')
         elif args.inv_type == 'direct' and args.subspace_fraction < 1:
             self.maintain_corr_lower(params)
             self.maintain_avgs_lower()

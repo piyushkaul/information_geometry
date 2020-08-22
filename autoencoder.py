@@ -62,8 +62,8 @@ model = Autoencoder(args).cuda()
 criterion = nn.BCELoss()
 optimizer = select_optimizer(model, args.optimizer, args.lr)
 scheduler = StepLR(optimizer, step_size=1, gamma=args.gamma)
-optimizer = torch.optim.Adam(
-    model.parameters(), lr=learning_rate, weight_decay=1e-5)
+#optimizer = torch.optim.SGD(
+#    model.parameters(), lr=learning_rate, weight_decay=1e-5)
 use_cuda = True
 loss_list = []
 MSE_loss_list = []

@@ -16,7 +16,7 @@ import arguments
 from utils import save_files, get_file_suffix
 import resnet
 
-def train(args, model, device, train_loader, optimizer, epoch, train_loss_list, train_accuracy_list, cnn_model=False):
+def train(args, model, device, train_loader, optimizer, criterion, epoch, train_loss_list, train_accuracy_list, cnn_model=False):
     model.train()
     running_loss = 0
     correct = 0
@@ -31,7 +31,7 @@ def train(args, model, device, train_loader, optimizer, epoch, train_loss_list, 
         pred = output.argmax(dim=1, keepdim=True)  # get the index of the max log-probability
         correct += pred.eq(target.view_as(pred)).sum().item()
 
-        loss = F.nll_loss(output, target)
+        loss = criterion(output, target)
         loss.backward()
         running_loss += loss.item()
 
@@ -173,6 +173,14 @@ def get_model(args):
         cnn_type = True
     return model, cnn_type
 
+def select_criterion(args):
+    if args.model == 'cnn':
+        criterion = nn.NLLLoss()
+    elif args.model == 'mlp':
+        criterion = nn.NLLLoss()
+    elif args.model == 'resnet18':
+        criterion = nn.CrossEntropyLoss()
+    return criterion
 
 def main(args=None):
     # Training settings
@@ -207,10 +215,11 @@ def main(args=None):
 
     train_loader, test_loader = get_data_loader(args, kwargs)
     optimizer = select_optimizer(model, args.optimizer, args.lr)
+    criterion = select_criterion(args)
     scheduler = StepLR(optimizer, step_size=1, gamma=args.gamma)
 
     for epoch in range(1, args.epochs + 1):
-        train(args, model, device, train_loader, optimizer, epoch, train_loss_list, train_accuracy_list, cnn_model=cnn_type)
+        train(args, model, device, train_loader, optimizer, criterion, epoch, train_loss_list, train_accuracy_list, cnn_model=cnn_type)
         test(model, device, test_loader,  test_loss_list, test_accuracy_list, cnn_model=cnn_type)
         scheduler.step()
         #model.epoch_bookkeeping()
@@ -230,7 +239,7 @@ def main(args=None):
     plt.ylabel('Loss')
     plt.legend(loc=2, fontsize="small")
 
-    suffix = get_file_suffix()
+    suffix = get_file_suffix(args)
 
     if args.save_model:
         torch.save(model.state_dict(), "mnist_cnn" + suffix + ".pt")
@@ -242,7 +251,8 @@ def main(args=None):
     save_files(test_accuracy_list, 'test_accuracy', suffix)
     save_files(train_loss_list, 'train_loss', suffix)
     save_files(test_accuracy_list, 'train_accuracy', suffix)
-    with open("summary.txt", "a") as fp_sum:
+    print('Experiment Result : {}\tTest Acc = {}\tTest Loss={}\tTrain Acc ={}\tTrain Loss = {}\n'.format(suffix, test_accuracy_list[-1], test_loss_list[-1], train_accuracy_list[-1], train_loss_list[-1]))
+    with open("summary_" + args.model + ".txt", "a") as fp_sum:
         fp_sum.writelines(['Experiment : {}\tTest Acc = {}\tTest Loss={}\tTrain Acc ={}\tTrain Loss = {}\n'.format(suffix, test_accuracy_list[-1], test_loss_list[-1], train_accuracy_list[-1], train_loss_list[-1])])
 
 if __name__ == '__main__':
