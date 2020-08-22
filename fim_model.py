@@ -307,7 +307,7 @@ class ModelFIM(nn.Module):
             num_features = params[item_no].shape[1]
             subspace_size = self.get_subspace_size(num_features)
             P = np.random.normal(loc=0, scale=1.0 / np.sqrt(subspace_size), size=(subspace_size, num_features))
-            self.P[key] = torch.from_numpy(P.T.astype(np.float32))
+            self.P[key] = torch.from_numpy(P.T.astype(np.float32)).to(self.device)
             #print('random_projection_matrix_update: size of P[{}] = {}'.format(key, self.P[key].shape))
 
     def orthogonal_projection_matrix_update(self, params):
@@ -430,7 +430,11 @@ class ModelFIM(nn.Module):
     def maintain_corr_lower(self, params):
         for item_no, (key, item) in enumerate(self.GS.items()):
             self.corr_curr_lower_proj[key] = self.project_vec_to_lower_space(params[item_no], key)
-            self.corr_curr_lower[key] = self.corr_curr_lower_proj[key].T @ self.corr_curr_lower_proj[key]
+            if item_no%2 == 0:
+                self.corr_curr_lower[key] = self.corr_curr_lower_proj[key].T @ (self.corr_curr_lower_proj[key] / self.corr_curr_lower_proj[key].shape[0])
+            else:
+                self.corr_curr_lower[key] = self.corr_curr_lower_proj[key].T @ self.corr_curr_lower_proj[key]
+
         #self.track_gs('maintain_corr after', dict_to_use=self.corr_curr_lower)
 
     def maintain_avgs(self):
@@ -463,7 +467,7 @@ class ModelFIM(nn.Module):
     def get_invs_recursively_lower(self):
         for item_no, (key, item) in enumerate(self.GS.items()):
             XLOWER = self.corr_curr_lower_proj[key]
-            self.GSLOWERINV[key] = self.matrix_inv_lemma(XLOWER, self.GSLOWERINV[key], key=key)
+            self.GSLOWERINV[key] = self.matrix_inv_lemma(XLOWER, self.GSLOWERINV[key], device=self.device, key=key)
 
 
     def get_inverses_direct(self):
