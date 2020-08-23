@@ -375,7 +375,7 @@ class ModelFIM(nn.Module):
     #     return GS
     def matrix_inv_lemma(self, X, GS, device=None, alpha=0.9, key=None):
         num_batches = X.shape[0]
-        GS = GS * (1 / alpha) #- torch.eye(GS.shape[0], device=device) * 0.1
+        GS = GS * (1 / alpha) #+ torch.eye(GS.shape[0], device=device) * 0.1
         id_mat = torch.eye(num_batches, device=device) * (1 / (1 - alpha))
         inner_term = id_mat + X @ GS @ X.T
         xg = X @ GS
@@ -443,14 +443,14 @@ class ModelFIM(nn.Module):
         for item_no, (key, item) in enumerate(self.GS.items()):
             #print('corr_curr[{}].shape = {}, GS.shape[{}] = {}'.format(item_no, corr_curr[item_no].shape, key, self.GS[key].shape))
             self.GS[key] = alpha * self.GS[key] + (1 - alpha) * self.corr_curr[key]
-            self.check_nan(self.GS[key], message=key)
+            #self.check_nan(self.GS[key], message=key)
         #self.track_gs('maintain_avgs after')
 
     def maintain_avgs_lower(self):
         alpha = 0.95
         for item_no, (key, item) in enumerate(self.GS.items()):
             #print('corr_curr[{}].shape = {}, GS.shape[{}] = {}'.format(item_no, self.corr_curr_lower[key].shape, key, self.GSLOWER[key].shape))
-            self.GSLOWER[key] = alpha * self.GSLOWER[key] + (1 - alpha) * self.corr_curr_lower[key]
+            self.GSLOWER[key] = alpha * self.GSLOWER[key] + (1 - alpha) * self.GSLOWER[key]
 
 
     def reset_invs(self):
@@ -460,6 +460,7 @@ class ModelFIM(nn.Module):
 
     def get_invs_recursively(self):
         for item_no, (key, item) in enumerate(self.GS.items()):
+            #XFULL = self.corr_curr[key]
             XFULL = self.params[key]
             #print('XFULL SHAPE = {}'.format(XFULL.shape))
             self.GSINV[key] = self.matrix_inv_lemma(XFULL, self.GSINV[key], device=self.device, key=key)
@@ -467,7 +468,9 @@ class ModelFIM(nn.Module):
     def get_invs_recursively_lower(self):
         for item_no, (key, item) in enumerate(self.GS.items()):
             XLOWER = self.corr_curr_lower_proj[key]
+            #print('XLOWER SHAPE = {}'.format(XLOWER.shape))
             self.GSLOWERINV[key] = self.matrix_inv_lemma(XLOWER, self.GSLOWERINV[key], device=self.device, key=key)
+            self.GSINV[key] = self.project_mtx_To_higher_space(self.GSLOWERINV[key], key)
 
 
     def get_inverses_direct(self):
@@ -478,7 +481,7 @@ class ModelFIM(nn.Module):
             #eigval[eigval<med_eig] = med_eig
             #self.GS[key] = eigvec @ torch.diag(eigval) @ eigvec.T
             self.GSINV[key] = torch.inverse(self.GS[key] + torch.eye(self.GS[key].shape[0], device=self.device) * self.gamma * self.damping[key])
-            self.check_nan(self.GSINV[key], message=key)
+            #self.check_nan(self.GSINV[key], message=key)
 
         #self.track_gs('get_inverses_direct after', dict_to_use=self.GSINV)
 
@@ -500,9 +503,9 @@ class ModelFIM(nn.Module):
         tick = self.tick
 
         if args.inv_type == 'recursive' and args.subspace_fraction == 1:
+            #self.maintain_corr(params)
+            #self.maintain_avgs()
             self.maintain_params(params)
-            if tick % 200 == 0:
-                self.reset_invs()
             self.get_invs_recursively()
             #else:
             #    self.maintain_corr(params)
@@ -512,10 +515,7 @@ class ModelFIM(nn.Module):
             #        print('direct inverse calculated')
            
         elif args.inv_type == 'recursive' and args.subspace_fraction < 1:
-            self.maintain_corr(params)
-            self.maintain_avgs()
             self.maintain_corr_lower(params)
-            self.maintain_avgs_lower()
             if True:#tick % args.inv_period == 0:
                 self.get_invs_recursively_lower()
         elif args.inv_type == 'direct' and args.subspace_fraction == 1:
