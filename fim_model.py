@@ -6,6 +6,7 @@ import inspect
 import matplotlib.pyplot as plt
 import math
 import itertools
+from sklearn.random_projection import johnson_lindenstrauss_min_dim
 
 class Hook():
     def __init__(self, module, name=None, backward=False):
@@ -232,11 +233,14 @@ class ModelFIM(nn.Module):
         self.tick = 0
         self.gamma = 0.1
         self.epoch_no = 0
+        self.first_time = True
 
         if args.random_projection:
             self.random_projection = True
+            self.get_subspace_size = self.get_subspace_size_random
         else:
             self.random_projection = False
+            self.get_subspace_size = self.get_subspace_size_fraction
         self.dump_eigenvalues = args.dump_eigenvalues
         self.matrices_initialized = False
 
@@ -278,10 +282,23 @@ class ModelFIM(nn.Module):
     def forward(self, X):
         raise Exception('Inherit this class')
 
-    def get_subspace_size(self, full_space_size):
+
+    def get_subspace_size_random(self, full_space_size, tag=None):
+        subspace_size = johnson_lindenstrauss_min_dim(n_samples=full_space_size, eps=0.9)
+        if subspace_size > full_space_size:
+            subspace_size = full_space_size
+        if self.first_time:
+            print('For Layer = {}, Full Space size = {}, Subspace Size = {}'.format(tag, full_space_size, subspace_size))
+
+
+        return int(subspace_size)
+
+    def get_subspace_size_fraction(self, full_space_size, tag=None):
         subspace_size = int(full_space_size * self.subspace_fraction)
         if subspace_size < 64:
             subspace_size = full_space_size
+        if self.first_time:
+            print('For Layer = {}, Full Space size = {}, Subspace Size = {}'.format(tag, full_space_size, subspace_size))
         return subspace_size
 
     def get_grads(self):
@@ -298,6 +315,7 @@ class ModelFIM(nn.Module):
             self.random_projection_matrix_update(params)
         else:
             self.orthogonal_projection_matrix_update(params)
+        self.first_time = False
 
 
     def random_projection_matrix_update(self, params):
@@ -305,10 +323,11 @@ class ModelFIM(nn.Module):
             #eigval, eigvec = torch.symeig(self.GS[key], eigenvectors=True)
             num_components = params[item_no].shape[0]
             num_features = params[item_no].shape[1]
-            subspace_size = self.get_subspace_size(num_features)
+            subspace_size = self.get_subspace_size(num_features, tag=key)
             P = np.random.normal(loc=0, scale=1.0 / np.sqrt(subspace_size), size=(subspace_size, num_features))
             self.P[key] = torch.from_numpy(P.T.astype(np.float32)).to(self.device)
             #print('random_projection_matrix_update: size of P[{}] = {}'.format(key, self.P[key].shape))
+
 
     def orthogonal_projection_matrix_update(self, params):
         if self.subspace_fraction == 1:
@@ -335,7 +354,7 @@ class ModelFIM(nn.Module):
 
         for item_no, (key, item) in enumerate(self.GS.items()):
             eigval, eigvec = torch.symeig(self.GS[key], eigenvectors=True)
-            subspace_size = self.get_subspace_size(eigvec.shape[0])
+            subspace_size = self.get_subspace_size(eigvec.shape[0], tag=key)
             eigvec_subspace = eigvec[:, -subspace_size:]
             self.P[key] = eigvec_subspace
             #print('orthogonal_projection_matrix_update: size of P[{}] = {}'.format(key, self.P[key].shape))
@@ -450,12 +469,22 @@ class ModelFIM(nn.Module):
         alpha = 0.95
         for item_no, (key, item) in enumerate(self.GS.items()):
             #print('corr_curr[{}].shape = {}, GS.shape[{}] = {}'.format(item_no, self.corr_curr_lower[key].shape, key, self.GSLOWER[key].shape))
-            self.GSLOWER[key] = alpha * self.GSLOWER[key] + (1 - alpha) * self.GSLOWER[key]
+            self.GSLOWER[key] = alpha * self.GSLOWER[key] + (1 - alpha) * self.corr_curr_lower[key]
 
 
     def reset_invs(self):
         for item_no, (key, item) in enumerate(self.GSINV.items()):
             self.GSINV[key] = torch.eye(self.GSINV[key].shape[0], device=self.device)
+
+    def reset_all(self):
+        for item_no, (key, item) in enumerate(self.GSINV.items()):
+            self.GSINV[key] = torch.eye(self.GSINV[key].shape[0], device=self.device)
+            self.GSLOWER[key]  = torch.eye(self.GSLOWER[key].shape[0], device=self.device)
+            self.GS[key] = torch.eye(self.GS[key].shape[0], device=self.device)
+            self.GSLOWERINV[key] = torch.eye(self.GSLOWERINV[key].shape[0], device=self.device)
+            subspace_size = self.get_subspace_size(self.GSINV[key].shape[0])
+            eigvec_subspace = self.GS[key][:, -subspace_size:]
+            self.P[key] = eigvec_subspace
 
 
     def get_invs_recursively(self):
@@ -495,7 +524,7 @@ class ModelFIM(nn.Module):
 
     def get_inverses_direct_lower(self):
         for item_no, (key, item) in enumerate(self.GS.items()):
-            GSPROJINV = torch.inverse(self.GSLOWER[key] + torch.eye(self.GSLOWER[key].shape[0], device=self.device) * 0.001)
+            GSPROJINV = torch.inverse(self.GSLOWER[key] + torch.eye(self.GSLOWER[key].shape[0], device=self.device) * self.gamma * self.damping[key])
             self.GSINV[key] = self.project_mtx_To_higher_space(GSPROJINV, key)
 
 

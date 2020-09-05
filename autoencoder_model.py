@@ -8,14 +8,14 @@ class Autoencoder(ModelFIM):
     def __init__(self, args):
         super(Autoencoder, self).__init__(args)
         self.encoder = nn.Sequential(
-            nn.Linear(28 * 28, 256),
+            nn.Linear(28 * 28, 2048),
             nn.ReLU(True),
-            nn.Linear(256, 64),
+            nn.Linear(2048, 64),
             nn.ReLU(True))
         self.decoder = nn.Sequential(
-            nn.Linear(64, 256),
+            nn.Linear(64, 2048),
             nn.ReLU(True),
-            nn.Linear(256, 28 * 28),
+            nn.Linear(2048, 28 * 28),
             nn.Sigmoid())
         super(Autoencoder, self).common_init(args)
 

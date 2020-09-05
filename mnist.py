@@ -36,9 +36,21 @@ def train(args, model, device, train_loader, optimizer, criterion, epoch, train_
         running_loss += loss.item()
 
         if isinstance(optimizer, NGD):
-            #nn.utils.clip_grad_norm_(model.parameters(), 1),
             maintain_fim(model, args, batch_idx)
             optimizer.step(whitening_matrices=model.GSINV)
+            #clipped_norm_1 = nn.utils.clip_grad_norm_(model.parameters(), 0.1, 'inf'),
+            #threshold = 0.1
+
+            if False:#clipped_norm_1[0] > threshold:
+                print('clipped_norm_1 = {}, threshold = {}'.format(clipped_norm_1, threshold))
+                optimizer.param_groups[0]['lr'] = -1. * optimizer.param_groups[0]['lr']
+                optimizer.step(whitening_matrices=model.GSINV)
+                out = model(data)
+                loss = criterion(out, target)
+                optimizer.param_groups[0]['lr'] = -1. * optimizer.param_groups[0]['lr']
+                model.reset_all()
+
+
         else:
             optimizer.step()
         if np.isnan(loss.item()):
