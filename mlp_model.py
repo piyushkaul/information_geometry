@@ -11,19 +11,26 @@ class MLP(ModelFIM):
         self.subspace_fraction = args.subspace_fraction
         self.use_cuda = not args.no_cuda and torch.cuda.is_available()
         self.device = torch.device("cuda" if self.use_cuda else "cpu")
-        self.linear1 = nn.Linear(784, 250)
-        self.linear2 = nn.Linear(250, 100)
-        self.linear3 = nn.Linear(100, 10)
+        self.linear1 = nn.Linear(784, 1024)
+        self.bn1 = nn.BatchNorm1d(1024)
+        self.linear2 = nn.Linear(1024, 2048)
+        self.bn2 = nn.BatchNorm1d(2048)
+        self.linear3 = nn.Linear(2048, 10)
+        #self.dropout = nn.Dropout(0.2)
         super(MLP, self).common_init(args)
 
     def forward(self, X):
-        self.a0 = X
-        self.s0 = self.linear1(self.a0)
-        self.a1 = F.relu(self.s0)
-        self.s1 = self.linear2(self.a1)
-        self.a2 = F.relu(self.s1)
-        self.s2 = self.linear3(self.a2)
-        return F.log_softmax(self.s2, dim=1)
+        a0 = X
+        s0 = self.linear1(a0)
+        b0 = self.bn1(s0)
+        a1 = F.relu(b0)
+        s1 = self.linear2(a1)
+        b1 = self.bn2(s1)
+        a2 = F.relu(b1)
+        #d2 = self.dropout(a2)
+        d2 = a2
+        s2 = self.linear3(d2)
+        return F.log_softmax(s2, dim=1)
 
 
 

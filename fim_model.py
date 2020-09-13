@@ -191,12 +191,12 @@ class ModelFIM(nn.Module):
                 name = 'GAM' + str(item_no//2) + '_AVG'
             depth = item.shape[1]
             self.GS[name] = torch.eye((depth), device=self.device)
-        for key, val in self.GS.items():
-            self.GSLOWER[key] = torch.eye(self.get_subspace_size(self.GS[key].shape[0]), device=self.device)
-            self.GSLOWERINV[key] = torch.eye(self.get_subspace_size(self.GS[key].shape[0]), device=self.device)
+        for item_no, (key, val) in enumerate(self.GS.items()):
+            self.GSLOWER[key] = torch.eye(self.get_subspace_size(self.GS[key].shape[0], item_no==0), device=self.device)
+            self.GSLOWERINV[key] = torch.eye(self.get_subspace_size(self.GS[key].shape[0], item_no==0), device=self.device)
         for item_no, (key, item) in enumerate(self.GS.items()):
             self.GSINV[key] = self.GS[key]
-            subspace_size = self.get_subspace_size(self.GSINV[key].shape[0])
+            subspace_size = self.get_subspace_size(self.GSINV[key].shape[0], item_no==0)
             eigvec_subspace = self.GS[key][:, -subspace_size:]
             self.P[key] = eigvec_subspace
             self.corr_curr[key] = None
@@ -283,20 +283,29 @@ class ModelFIM(nn.Module):
         raise Exception('Inherit this class')
 
 
-    def get_subspace_size_random(self, full_space_size, tag=None):
+    def get_subspace_size_random(self, full_space_size, first_item=False, tag=None):
         subspace_size = johnson_lindenstrauss_min_dim(n_samples=full_space_size, eps=0.9)
         if subspace_size > full_space_size:
             subspace_size = full_space_size
+
+        if first_item:
+            subspace_size = full_space_size
+
         if self.first_time:
             print('For Layer = {}, Full Space size = {}, Subspace Size = {}'.format(tag, full_space_size, subspace_size))
+     
 
 
         return int(subspace_size)
 
-    def get_subspace_size_fraction(self, full_space_size, tag=None):
+    def get_subspace_size_fraction(self, full_space_size, first_item=False, tag=None):
         subspace_size = int(full_space_size * self.subspace_fraction)
         if subspace_size < 64:
             subspace_size = full_space_size
+
+        if first_item:
+            subspace_size = full_space_size
+
         if self.first_time:
             print('For Layer = {}, Full Space size = {}, Subspace Size = {}'.format(tag, full_space_size, subspace_size))
         return subspace_size
@@ -323,7 +332,7 @@ class ModelFIM(nn.Module):
             #eigval, eigvec = torch.symeig(self.GS[key], eigenvectors=True)
             num_components = params[item_no].shape[0]
             num_features = params[item_no].shape[1]
-            subspace_size = self.get_subspace_size(num_features, tag=key)
+            subspace_size = self.get_subspace_size(num_features, item_no==0, tag=key)
             P = np.random.normal(loc=0, scale=1.0 / np.sqrt(subspace_size), size=(subspace_size, num_features))
             self.P[key] = torch.from_numpy(P.T.astype(np.float32)).to(self.device)
             #print('random_projection_matrix_update: size of P[{}] = {}'.format(key, self.P[key].shape))
@@ -354,7 +363,7 @@ class ModelFIM(nn.Module):
 
         for item_no, (key, item) in enumerate(self.GS.items()):
             eigval, eigvec = torch.symeig(self.GS[key], eigenvectors=True)
-            subspace_size = self.get_subspace_size(eigvec.shape[0], tag=key)
+            subspace_size = self.get_subspace_size(eigvec.shape[0], item_no==0, tag=key)
             eigvec_subspace = eigvec[:, -subspace_size:]
             self.P[key] = eigvec_subspace
             #print('orthogonal_projection_matrix_update: size of P[{}] = {}'.format(key, self.P[key].shape))
@@ -393,6 +402,7 @@ class ModelFIM(nn.Module):
     #     #                                                                       inner_term.shape))
     #     return GS
     def matrix_inv_lemma(self, X, GS, device=None, alpha=0.9, key=None):
+        alpha= self.gamma * self.damping[key]
         num_batches = X.shape[0]
         GS = GS * (1 / alpha) #+ torch.eye(GS.shape[0], device=device) * 0.1
         id_mat = torch.eye(num_batches, device=device) * (1 / (1 - alpha))
@@ -482,7 +492,7 @@ class ModelFIM(nn.Module):
             self.GSLOWER[key]  = torch.eye(self.GSLOWER[key].shape[0], device=self.device)
             self.GS[key] = torch.eye(self.GS[key].shape[0], device=self.device)
             self.GSLOWERINV[key] = torch.eye(self.GSLOWERINV[key].shape[0], device=self.device)
-            subspace_size = self.get_subspace_size(self.GSINV[key].shape[0])
+            subspace_size = self.get_subspace_size(self.GSINV[key].shape[0], item_no==0)
             eigvec_subspace = self.GS[key][:, -subspace_size:]
             self.P[key] = eigvec_subspace
 
@@ -503,7 +513,7 @@ class ModelFIM(nn.Module):
 
 
     def get_inverses_direct(self):
-        self.get_damping_factor()
+        self.get_damping_factor(self.GS)
         for item_no, (key, item) in enumerate(self.GS.items()):
             #eigval, eigvec = torch.symeig(self.GS[key], eigenvectors=True)
             #med_eig = torch.median(eigval)
@@ -514,8 +524,8 @@ class ModelFIM(nn.Module):
 
         #self.track_gs('get_inverses_direct after', dict_to_use=self.GSINV)
 
-    def get_damping_factor(self):
-        items = list(self.GS.items())
+    def get_damping_factor(self, matrices):
+        items = list(matrices.items())
         for item_no, item in enumerate(items):
             if item_no%2 == 0:
                 self.damping[item[0]] = torch.sqrt(torch.trace(items[item_no][1])/torch.trace(items[item_no+1][1]))
@@ -523,6 +533,7 @@ class ModelFIM(nn.Module):
                 self.damping[item[0]] = torch.sqrt(torch.trace(items[item_no][1])/torch.trace(items[item_no-1][1]))
 
     def get_inverses_direct_lower(self):
+        self.get_damping_factor(self.GSLOWER)
         for item_no, (key, item) in enumerate(self.GS.items()):
             GSPROJINV = torch.inverse(self.GSLOWER[key] + torch.eye(self.GSLOWER[key].shape[0], device=self.device) * self.gamma * self.damping[key])
             self.GSINV[key] = self.project_mtx_To_higher_space(GSPROJINV, key)
