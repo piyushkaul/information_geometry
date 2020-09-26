@@ -31,27 +31,16 @@ def train(args, model, device, train_loader, optimizer, criterion, epoch, train_
         pred = output.argmax(dim=1, keepdim=True)  # get the index of the max log-probability
         correct += pred.eq(target.view_as(pred)).sum().item()
 
-        loss = criterion(output, target)
-        loss.backward()
-        running_loss += loss.item()
-
         if isinstance(optimizer, NGD):
-            maintain_fim(model, args, batch_idx)
+            maintain_fim(model, args, batch_idx, output, criterion)
+            loss = criterion(output, target)
+            loss.backward()
+            running_loss += loss.item()
             optimizer.step(whitening_matrices=model.GSINV)
-            #clipped_norm_1 = nn.utils.clip_grad_norm_(model.parameters(), 0.1, 'inf'),
-            #threshold = 0.1
-
-            if False:#clipped_norm_1[0] > threshold:
-                print('clipped_norm_1 = {}, threshold = {}'.format(clipped_norm_1, threshold))
-                optimizer.param_groups[0]['lr'] = -1. * optimizer.param_groups[0]['lr']
-                optimizer.step(whitening_matrices=model.GSINV)
-                out = model(data)
-                loss = criterion(out, target)
-                optimizer.param_groups[0]['lr'] = -1. * optimizer.param_groups[0]['lr']
-                model.reset_all()
-
-
         else:
+            loss = criterion(output, target)
+            loss.backward()
+            running_loss += loss.item()
             optimizer.step()
         if np.isnan(loss.item()):
             raise Exception('Nan in loss')

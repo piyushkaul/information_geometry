@@ -9,6 +9,7 @@ import itertools
 from sklearn.random_projection import johnson_lindenstrauss_min_dim
 
 class Hook():
+    enable = True
     def __init__(self, module, name=None, backward=False):
         self.backward = backward
         if isinstance(module,nn.Conv2d):
@@ -87,7 +88,7 @@ class Hook():
             stride = self.stride
             #reduced_param = im2col_indices(param, kernel_size[0], kernel_size[1], padding[0], stride[0])
             reduced_param = torch.nn.functional.unfold(param, (kernel_size[0], kernel_size[1]), stride=1)
-            reduced_param = reduced_param.transpose(1,2)
+            reduced_param = reduced_param.transpose(1, 2)
             reduced_param = reduced_param.reshape(-1, reduced_param.shape[-1])
             #reduced_param = reduced_param.T
             self.spatial_sizes = 1.0/(param.shape[2] * param.shape[3])
@@ -571,3 +572,12 @@ class ModelFIM(nn.Module):
         else:
             raise Exception('unknown combination')
         self.tick = self.tick + 1
+
+    def maintain_fim(self, args, batch_idx, output, criterion):
+        max_class = torch.argmax(output, 1)
+        loss = criterion(output, max_class)
+        loss.backward(retain_graph=True)
+        params = self.get_grads()
+        self.maintain_invs(params, args)
+        if batch_idx % args.proj_period == 0:
+            self.projection_matrix_update(params)
