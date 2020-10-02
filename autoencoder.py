@@ -9,7 +9,7 @@ from torchvision.datasets import MNIST
 from torchvision.utils import save_image
 from autoencoder_model import Autoencoder
 from ngd import NGD
-from ngd import select_optimizer, maintain_fim
+from ngd import select_optimizer
 from torch.optim.lr_scheduler import StepLR
 import arguments
 import utils
@@ -56,18 +56,17 @@ args = parser.parse_args()
 dataset = MNIST('./data', transform=img_transform, download=True)
 dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
 
-
-model = Autoencoder(args).cuda()
+use_cuda = False
+device = torch.device("cuda" if use_cuda else "cpu")
+model = Autoencoder(args).to(device)
 
 criterion = nn.BCELoss()
 optimizer = select_optimizer(model, args.optimizer, args.lr)
 scheduler = StepLR(optimizer, step_size=1, gamma=args.gamma)
 #optimizer = torch.optim.SGD(
 #    model.parameters(), lr=learning_rate, weight_decay=1e-5)
-use_cuda = True
 loss_list = []
 MSE_loss_list = []
-device = torch.device("cuda" if use_cuda else "cpu")
 for epoch in range(num_epochs):
     batch_idx = 0
     for data in dataloader:
@@ -83,7 +82,7 @@ for epoch in range(num_epochs):
         loss.backward()
         if isinstance(optimizer, NGD):
             #nn.utils.clip_grad_norm_(model.parameters(), 1),
-            maintain_fim(model, args, batch_idx)
+            model.maintain_fim(model, args, batch_idx)
             optimizer.step(whitening_matrices=model.GSINV)
         else:
             optimizer.step()
