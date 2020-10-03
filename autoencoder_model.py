@@ -4,29 +4,46 @@ from collections import OrderedDict
 from fim_model import ModelFIM
 import torch
 
-#784,1000,500,250,3
+features = [784,1000,500,250,30]
+
 
 class Autoencoder(ModelFIM):
-    def __init__(self, args):
+    def __init__(self, args, init_from_rbm=False):
         super(Autoencoder, self).__init__(args)
         self.encoder = nn.Sequential(
-            nn.Linear(28 * 28, 1000),
+            nn.Linear(features[0], features[1]),
             nn.Sigmoid(),
-            nn.Linear(1000, 500),
+            nn.Linear(features[1], features[2]),
             nn.Sigmoid(),
-            nn.Linear(500, 250),
+            nn.Linear(features[2], features[3]),
             nn.Sigmoid(),
-            nn.Linear(250, 30))
+            nn.Linear(features[3], features[4]))
         self.decoder = nn.Sequential(
-            nn.Linear(30, 250),
+            nn.Linear(features[4], features[3]),
             nn.Sigmoid(),
-            nn.Linear(250, 500),
+            nn.Linear(features[3], features[2]),
             nn.Sigmoid(),
-            nn.Linear(500, 1000),
+            nn.Linear(features[2], features[1]),
             nn.Sigmoid(),
-            nn.Linear(1000, 28 * 28),
+            nn.Linear(features[1], features[0]),
             nn.Sigmoid())
         super(Autoencoder, self).common_init(args)
+        if init_from_rbm:
+            self.init_from_rbm()
+
+    def init_from_rbm(self):
+        enc_layers = [0, 2, 4, 6]
+        dec_layers = [6, 4, 2, 0]
+        for rbm_idx in range(4):
+            file_name = 'rbm' + str(rbm_idx) + '.pt'
+            loaded = torch.load(file_name)
+            print('Encoder: orig_shape = {}, loaded_shape={}'.format(self.encoder[enc_layers[rbm_idx]].weight.data.shape, loaded['weights'].data.shape))
+            print('Decoder: orig_shape = {}, loaded_shape={}'.format(self.decoder[dec_layers[rbm_idx]].weight.data.shape, loaded['weights'].data.shape))
+
+            self.encoder[enc_layers[rbm_idx]].weight.data.copy_(loaded['weights'].data.T)
+            self.encoder[enc_layers[rbm_idx]].bias.data.copy_(loaded['bias_fwd'].data)
+            self.decoder[dec_layers[rbm_idx]].weight.data.copy_(loaded['weights'].data)
+            self.decoder[dec_layers[rbm_idx]].bias.data.copy_(loaded['bias_back'].data)
 
     def forward(self, x):
         x = self.encoder(x)

@@ -22,7 +22,7 @@ def to_img(x):
     x = x.view(x.size(0), 1, 28, 28)
     return x
 
-num_epochs = 200
+num_epochs = 100
 batch_size = 128
 learning_rate = 1e-3
 
@@ -58,13 +58,13 @@ dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
 
 use_cuda = False
 device = torch.device("cuda" if use_cuda else "cpu")
-model = Autoencoder(args).to(device)
+model = Autoencoder(args, init_from_rbm=True).to(device)
 
 criterion = nn.BCELoss()
 optimizer = select_optimizer(model, args.optimizer, args.lr)
 scheduler = StepLR(optimizer, step_size=1, gamma=args.gamma)
-#optimizer = torch.optim.SGD(
-#    model.parameters(), lr=learning_rate, weight_decay=1e-5)
+
+
 loss_list = []
 MSE_loss_list = []
 for epoch in range(num_epochs):
