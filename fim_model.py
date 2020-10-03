@@ -573,10 +573,24 @@ class ModelFIM(nn.Module):
             raise Exception('unknown combination')
         self.tick = self.tick + 1
 
-    def maintain_fim(self, args, batch_idx, output, criterion):
+    def actual_loss_classification(output, criterion):
         max_class = torch.argmax(output, 1)
         loss = criterion(output, max_class)
         loss.backward(retain_graph=True)
+    
+   
+    def actual_loss_mse(output, criterion):
+        #max_class = torch.argmax(output, 1)
+        loss = criterion(output, output)
+        loss.backward(retain_graph=True)
+
+    def maintain_fim(self, args, batch_idx, type_of_loss=False, output=None, criterion=None):
+        if type_of_loss:
+            if type_of_loss == 'classification':
+                actual_loss_classification(output,criterion)
+            elif type_of_loss == 'autoencoder':
+                actual_loss_mse(output, criterion)
+          
         params = self.get_grads()
         self.maintain_invs(params, args)
         if batch_idx % args.proj_period == 0:

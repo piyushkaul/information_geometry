@@ -25,6 +25,7 @@ def to_img(x):
 num_epochs = 100
 batch_size = 128
 learning_rate = 1e-3
+el_fim = True
 
 
 def plot_sample_img(img, name):
@@ -56,7 +57,7 @@ args = parser.parse_args()
 dataset = MNIST('./data', transform=img_transform, download=True)
 dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
 
-use_cuda = False
+use_cuda = True
 device = torch.device("cuda" if use_cuda else "cpu")
 model = Autoencoder(args, init_from_rbm=True).to(device)
 
@@ -67,24 +68,50 @@ scheduler = StepLR(optimizer, step_size=1, gamma=args.gamma)
 
 loss_list = []
 MSE_loss_list = []
+
+def loss_backprop(output, img, criterion, optimizer):
+    loss = criterion(output, img)
+    MSE_loss = nn.MSELoss()(output, img)
+    # ===================backward====================
+    optimizer.zero_grad()
+    loss.backward()
+    return loss, MSE_loss
+
+def ngd_el_fim_loss(model, args, batch_idx, output, criterion, optimizer):
+    loss, MSE_loss = loss_backprop(output, img, criterion, optimizer)
+    model.maintain_fim(args, batch_idx)
+    optimizer.step(whitening_matrices=model.GSINV)
+    return loss, MSE_loss
+
+def ngd_std_fim_loss(model, args, batch_idx, output, criterion, optimizer):
+    model.maintain_fim(args, batch_idx, type_of_loss=True, output=output, criterion=criterion)
+    loss, MSE_loss = loss_backprop(output, img, criterion, optimizer)
+    optimizer.step(whitening_matrices=model.GSINV)
+    return loss, MSE_Loss
+
+def sgd_loss(model, args, batch_idx, output, criterion, optimizer):
+    loss, MSE_loss = loss_backprop(output, img, criterion, optimizer)
+    optimizer.step()
+    return loss, MSE_loss
+
+if isinstance(optimizer, NGD):
+    if not el_fim:
+        backprop_and_optimize = ngd_std_fim_loss
+    else:
+        backprop_and_optimize = ngd_el_fim_loss
+              
+else:
+    backprop_and_optimize = sgd_loss
+ 
+
 for epoch in range(num_epochs):
     batch_idx = 0
     for data in dataloader:
         img, _ = data
         img = img.view(img.size(0), -1)
         img = img.to(device)
-        # ===================forward=====================
         output = model(img)
-        loss = criterion(output, img)
-        MSE_loss = nn.MSELoss()(output, img)
-        # ===================backward====================
-        optimizer.zero_grad()
-        loss.backward()
-        if isinstance(optimizer, NGD):
-            model.maintain_fim(model, args, batch_idx)
-            optimizer.step(whitening_matrices=model.GSINV)
-        else:
-            optimizer.step()
+        loss, MSE_loss = backprop_and_optimize(model, args, batch_idx, output, criterion, optimizer)
         batch_idx = batch_idx + 1
 
     #scheduler.step()
