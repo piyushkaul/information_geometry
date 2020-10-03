@@ -81,7 +81,6 @@ for epoch in range(num_epochs):
         optimizer.zero_grad()
         loss.backward()
         if isinstance(optimizer, NGD):
-            #nn.utils.clip_grad_norm_(model.parameters(), 1),
             model.maintain_fim(model, args, batch_idx)
             optimizer.step(whitening_matrices=model.GSINV)
         else:
