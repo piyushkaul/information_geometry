@@ -238,7 +238,7 @@ class ModelFIM(nn.Module):
 
         if args.random_projection:
             self.random_projection = True
-            self.get_subspace_size = self.get_subspace_size_random
+            self.get_subspace_size = self.get_subspace_size_fraction#get_subspace_size_random
         else:
             self.random_projection = False
             self.get_subspace_size = self.get_subspace_size_fraction
@@ -291,6 +291,8 @@ class ModelFIM(nn.Module):
 
         if first_item:
             subspace_size = full_space_size
+ 
+         
 
         if self.first_time:
             print('For Layer = {}, Full Space size = {}, Subspace Size = {}'.format(tag, full_space_size, subspace_size))
@@ -305,6 +307,9 @@ class ModelFIM(nn.Module):
             subspace_size = full_space_size
 
         if first_item:
+            subspace_size = full_space_size
+
+        if full_space_size == 784:
             subspace_size = full_space_size
 
         if self.first_time:
@@ -573,13 +578,13 @@ class ModelFIM(nn.Module):
             raise Exception('unknown combination')
         self.tick = self.tick + 1
 
-    def actual_loss_classification(output, criterion):
+    def actual_loss_classification(self, output, criterion):
         max_class = torch.argmax(output, 1)
         loss = criterion(output, max_class)
         loss.backward(retain_graph=True)
     
    
-    def actual_loss_mse(output, criterion):
+    def actual_loss_mse(self, output, criterion):
         #max_class = torch.argmax(output, 1)
         loss = criterion(output, output)
         loss.backward(retain_graph=True)
@@ -587,9 +592,9 @@ class ModelFIM(nn.Module):
     def maintain_fim(self, args, batch_idx, type_of_loss=False, output=None, criterion=None):
         if type_of_loss:
             if type_of_loss == 'classification':
-                actual_loss_classification(output,criterion)
+                self.actual_loss_classification(output,criterion)
             elif type_of_loss == 'autoencoder':
-                actual_loss_mse(output, criterion)
+                self.actual_loss_mse(output, criterion)
           
         params = self.get_grads()
         self.maintain_invs(params, args)

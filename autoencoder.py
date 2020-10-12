@@ -84,7 +84,7 @@ def ngd_el_fim_loss(model, args, batch_idx, output, criterion, optimizer):
     return loss, MSE_loss
 
 def ngd_std_fim_loss(model, args, batch_idx, output, criterion, optimizer):
-    model.maintain_fim(args, batch_idx, type_of_loss=True, output=output, criterion=criterion)
+    model.maintain_fim(args, batch_idx, type_of_loss='autoencoder', output=output, criterion=criterion)
     loss, MSE_loss = loss_backprop(output, img, criterion, optimizer)
     optimizer.step(whitening_matrices=model.GSINV)
     return loss, MSE_Loss

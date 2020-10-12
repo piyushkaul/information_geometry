@@ -10,7 +10,7 @@ from torch.optim.optimizer import Optimizer, required
 from mlp_model import MLP
 from cnn_model import CNN
 from ngd import NGD
-from ngd import select_optimizer, maintain_fim
+from ngd import select_optimizer#, maintain_fim
 import numpy as np
 import arguments
 from utils import save_files, get_file_suffix
@@ -32,7 +32,7 @@ def train(args, model, device, train_loader, optimizer, criterion, epoch, train_
         correct += pred.eq(target.view_as(pred)).sum().item()
 
         if isinstance(optimizer, NGD):
-            maintain_fim(model, args, batch_idx, output, criterion)
+            model.maintain_fim(args, batch_idx, type_of_loss='classification', output=output, criterion=criterion) 
             loss = criterion(output, target)
             loss.backward()
             running_loss += loss.item()

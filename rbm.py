@@ -1,11 +1,17 @@
+import os
 import torch
 from torchvision import datasets, transforms
 
 class RBM:
-    def __init__(self, visible_units, hidden_units, lr=0.001, momentum=0.5, weight_decay=0.0001, linear=False):
-        self.hidden_bias = torch.zeros(hidden_units)
-        self.visible_bias = torch.ones(visible_units)*0.5
-        self.weights = torch.randn(visible_units, hidden_units) * 0.1
+    def __init__(self, visible_units, hidden_units, lr=0.001, momentum=0.5, weight_decay=0.0001, linear=False, coeffs=None):
+        if coeffs:
+            self.hidden_bias = coeffs['bias_fwd']
+            self.visible_bias = coeffs['bias_back']
+            self.weights = coeffs['weights']
+        else:
+            self.hidden_bias = torch.zeros(hidden_units)
+            self.visible_bias = torch.ones(visible_units)*0.5
+            self.weights = torch.randn(visible_units, hidden_units) * 0.1
 
         self.momentum = momentum
         self.lr = lr
@@ -15,6 +21,7 @@ class RBM:
         self.visible_bias_velocity = torch.zeros(visible_units)
         self.hidden_bias_velocity = torch.zeros(hidden_units)
         self.linear = linear
+       
 
     def generate_activations(self, prob):
         return torch.bernoulli(prob)
@@ -63,8 +70,8 @@ class RBM:
         self.weights = self.weights * (1-self.weight_decay)
 
     def train(self, train_loader, device, num_epochs=10, rbm_idx=0):
-        out_data = []
         for epoch in range(num_epochs):
+            out_data = []
             total_loss = 0
             for batch_idx, (data, target) in enumerate(train_loader):
                 data, target = data.to(device), target.to(device)
@@ -111,6 +118,7 @@ def train_all_rbms(features=[784,1000,500,250,30]):
         print('Cuda is not available')
 
     use_cuda = torch.cuda.is_available()
+    use_cuda = False
 
     if use_cuda:
         print('Cuda is used')
@@ -124,11 +132,18 @@ def train_all_rbms(features=[784,1000,500,250,30]):
     kwargs = {'num_workers': 1, 'pin_memory': True} if use_cuda else {}
     train_loader, test_loader =  mnist_dataloader(batch_size, test_batch_size, kwargs)
 
+
+
     rbm_list = []
     for rbm_idx in range(len(features)-1):
         print(len(features)-1)
-        rbm = RBM(features[rbm_idx], features[rbm_idx+1])
-        out = rbm.train(train_loader, device, num_epochs=10,  rbm_idx=rbm_idx)
+        file_name = 'rbm' + str(rbm_idx) + '.pt'
+        rbm_coeffs=None
+        if os.path.isfile(file_name):
+            rbm_coeffs = torch.load(file_name)
+        rbm = RBM(features[rbm_idx], features[rbm_idx+1], coeffs=rbm_coeffs)
+        epochs = 10
+        out = rbm.train(train_loader, device, num_epochs=epochs,  rbm_idx=rbm_idx)
         train_loader = tensor_dataloader(out, batch_size, kwargs)
         rbm_list.append(rbm)
     return rbm_list
@@ -144,6 +159,7 @@ def train_one_rbm():
         print('Cuda is not available')
 
     use_cuda = torch.cuda.is_available()
+    use_cuda = False
 
     if use_cuda:
         print('Cuda is used')
