@@ -2,16 +2,15 @@ import os
 
 import torch
 from torch import nn
-from torch.autograd import Variable
 from torch.utils.data import DataLoader
 from torchvision import transforms
 from torchvision.datasets import MNIST
 from torchvision.utils import save_image
-from autoencoder_model import Autoencoder
-from ngd import NGD
-from ngd import select_optimizer
+from models.autoencoder_model import Autoencoder
+from core.ngd import NGD
+from core.ngd import select_optimizer
 from torch.optim.lr_scheduler import StepLR
-import arguments
+from utils import arguments
 import utils
 
 if not os.path.exists('./mlp_img'):
@@ -57,7 +56,7 @@ args = parser.parse_args()
 dataset = MNIST('./data', transform=img_transform, download=True)
 dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
 
-use_cuda = True
+use_cuda = False
 device = torch.device("cuda" if use_cuda else "cpu")
 model = Autoencoder(args, init_from_rbm=True).to(device)
 

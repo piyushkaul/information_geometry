@@ -6,15 +6,15 @@ from torchvision import datasets, transforms
 from torch.optim.lr_scheduler import StepLR
 #import numpy as np
 import matplotlib.pyplot as plt
-from torch.optim.optimizer import Optimizer, required
-from mlp_model import MLP
-from cnn_model import CNN
-from ngd import NGD
-from ngd import select_optimizer#, maintain_fim
+from models.mlp_model import MLP
+from models.cnn_model import CNN
+from core.ngd import NGD
+from core.ngd import select_optimizer#, maintain_fim
 import numpy as np
-import arguments
-from utils import save_files, get_file_suffix
-import resnet
+from utils.utils import save_files, get_file_suffix
+from utils import arguments
+from models import resnet
+
 
 def train(args, model, device, train_loader, optimizer, criterion, epoch, train_loss_list, train_accuracy_list, cnn_model=False):
     model.train()

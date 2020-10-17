@@ -1,7 +1,5 @@
 import torch.nn as nn
-import torch.nn.functional as F
-from collections import OrderedDict
-from fim_model import ModelFIM
+from core.fim_model import ModelFIM
 import torch
 
 features = [784,1000,500,250,30]

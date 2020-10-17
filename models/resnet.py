@@ -25,7 +25,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from fim_model import ModelFIM
+from core.fim_model import ModelFIM
 
 
 class BasicBlock(nn.Module):
