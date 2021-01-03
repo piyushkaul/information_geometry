@@ -5,7 +5,7 @@ import torch
 
 
 class MLP(ModelFIM):
-    def __init__(self, args):
+    def __init__(self, args, hook_enable=True, logger=None):
         super(MLP, self).__init__(args)
         self.subspace_fraction = args.subspace_fraction
         self.use_cuda = not args.no_cuda and torch.cuda.is_available()
@@ -16,7 +16,7 @@ class MLP(ModelFIM):
         self.bn2 = nn.BatchNorm1d(2048)
         self.linear3 = nn.Linear(2048, 10)
         #self.dropout = nn.Dropout(0.2)
-        super(MLP, self).common_init(args)
+        super(MLP, self).common_init(args, hook_enable=hook_enable, logger=logger)
 
     def forward(self, X):
         a0 = X

@@ -4,7 +4,7 @@ import torch.nn.functional as F
 from core.fim_model import ModelFIM
 
 class CNN(ModelFIM):
-    def __init__(self, args):
+    def __init__(self, args, hook_enable=True, logger=None):
         super(CNN, self).__init__(args)
         self.subspace_fraction = args.subspace_fraction
         self.conv1 = nn.Conv2d(1, 32, 3, 1)
@@ -13,7 +13,7 @@ class CNN(ModelFIM):
         #self.dropout2 = nn.Dropout2d(0.5)
         self.fc1 = nn.Linear(1600, 128)
         self.fc2 = nn.Linear(128, 10)
-        super(CNN, self).common_init(args)
+        super(CNN, self).common_init(args, hook_enable=hook_enable, logger=logger)
 
     def forward(self, x):
         self.a0 = x

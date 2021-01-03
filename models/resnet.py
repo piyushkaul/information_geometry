@@ -88,7 +88,7 @@ class Bottleneck(nn.Module):
 
 
 class ResNet(ModelFIM):
-    def __init__(self, block, num_blocks, num_classes=10, args=None):
+    def __init__(self, block, num_blocks, num_classes=10, args=None, hook_enable=True, logger=None):
         super(ResNet, self).__init__(args)
         self.in_planes = 64
 
@@ -100,7 +100,7 @@ class ResNet(ModelFIM):
         self.layer3 = self._make_layer(block, 256, num_blocks[2], stride=2)
         self.layer4 = self._make_layer(block, 512, num_blocks[3], stride=2)
         self.linear = nn.Linear(512*block.expansion, num_classes)
-        super(ResNet, self).common_init(args)
+        super(ResNet, self).common_init(args, hook_enable=hook_enable, logger=logger)
 
 
     def _make_layer(self, block, planes, num_blocks, stride):

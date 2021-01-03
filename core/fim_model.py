@@ -211,7 +211,7 @@ class ModelFIM(nn.Module):
                 self.eigval_f_inv_list_per_epoch.append([])
         self.track_gs('initialize_matrices')
 
-    def common_init(self, args):
+    def common_init(self, args, hook_enable=True, logger=None):
         self.use_cuda = not args.no_cuda and torch.cuda.is_available()
         self.device = torch.device("cuda" if self.use_cuda else "cpu")
         self.GS = OrderedDict()
@@ -235,6 +235,8 @@ class ModelFIM(nn.Module):
         self.gamma = 0.1
         self.epoch_no = 0
         self.first_time = True
+        self.logger = logger
+
 
         if args.random_projection:
             self.random_projection = True
@@ -244,11 +246,13 @@ class ModelFIM(nn.Module):
             self.get_subspace_size = self.get_subspace_size_fraction
         self.dump_eigenvalues = args.dump_eigenvalues
         self.matrices_initialized = False
+        if hook_enable:
+            self.register_hooks()
 
-        self.register_hooks()
+    #def epoch_trace_det_dump(self):
+    #    for item_no, item in enumerate(self.eigval_f_inv_list_per_epoch):
 
     def epoch_bookkeeping(self):
-
         for item_no, item in enumerate(self.eigval_f_inv_list_per_epoch):
             features = np.sort(self.eigval_f_inv_list[item_no]).tolist()
             features.insert(0,self.epoch_no)
@@ -266,6 +270,27 @@ class ModelFIM(nn.Module):
             with open('eigval_arrays' + str(list_idx) + '.csv', 'w', newline='') as f:
                 csvwriter = csv.writer(f)
                 csvwriter.writerows(list_item)
+
+    def update_eigval_arrays(self):
+        if self.dump_eigenvalues:
+            gs_values = list(self.GS.values())
+            self.eigval_f_inv_list = []
+            for item_no, (key, item) in enumerate(self.GS.items()):
+                 if item_no%2==0:
+                     eigval_psi, eigvec_psi = torch.symeig(gs_values[item_no], eigenvectors=False)
+                     eigval_gam, eigvec_gam = torch.symeig(gs_values[item_no+1], eigenvectors=False)
+                     if self.use_cuda:
+                         eigval_f_inv = np.kron(eigval_psi.cpu().numpy(), eigval_gam.cpu().numpy())
+                     else:
+                         eigval_f_inv = np.kron(eigval_psi.numpy(), eigval_gam.numpy())
+                     #print('eigval_f_inv = {}'.format(eigval_f_inv))
+                     self.eigval_f_inv_list.append(eigval_f_inv)
+                     self.logger.log_eigvals(eigval_f_inv, item_no//2, self.tick)
+                 #    plt.plot(range(len(eigval_f_inv)), eigval_f_inv, 'r', label='test loss')
+                 #    plt.xlabel('Eigenvalues')
+                 #    plt.ylabel('Loss')
+                 #    plt.legend(loc=2, fontsize="small")
+                 #    plt.show()
 
     def check_nan(self, tensor, message=None):
         if torch.isnan(tensor).any():
@@ -348,24 +373,7 @@ class ModelFIM(nn.Module):
         if self.subspace_fraction == 1:
             return
         #gs_keys=list(self.GS.keys())
-        gs_values = list(self.GS.values())
-        if self.dump_eigenvalues:
-            self.eigval_f_inv_list = []
-            for item_no, (key, item) in enumerate(self.GS.items()):
-                 if item_no%2==0:
-                     eigval_psi, eigvec_psi = torch.symeig(gs_values[item_no], eigenvectors=False)
-                     eigval_gam, eigvec_gam = torch.symeig(gs_values[item_no+1], eigenvectors=False)
-                     if self.use_cuda:
-                         eigval_f_inv = np.kron(eigval_psi.cpu().numpy(), eigval_gam.cpu().numpy())
-                     else:
-                         eigval_f_inv = np.kron(eigval_psi.numpy(), eigval_gam.numpy())
-                     #print('eigval_f_inv = {}'.format(eigval_f_inv))
-                     self.eigval_f_inv_list.append(eigval_f_inv)
-                 #    plt.plot(range(len(eigval_f_inv)), eigval_f_inv, 'r', label='test loss')
-                 #    plt.xlabel('Eigenvalues')
-                 #    plt.ylabel('Loss')
-                 #    plt.legend(loc=2, fontsize="small")
-                 #    plt.show()
+
 
         for item_no, (key, item) in enumerate(self.GS.items()):
             eigval, eigvec = torch.symeig(self.GS[key], eigenvectors=True)
@@ -544,7 +552,6 @@ class ModelFIM(nn.Module):
             GSPROJINV = torch.inverse(self.GSLOWER[key] + torch.eye(self.GSLOWER[key].shape[0], device=self.device) * self.gamma * self.damping[key])
             self.GSINV[key] = self.project_mtx_To_higher_space(GSPROJINV, key)
 
-
     def maintain_invs(self, params, args):
         tick = self.tick
 
@@ -576,6 +583,10 @@ class ModelFIM(nn.Module):
                 self.get_inverses_direct_lower()
         else:
             raise Exception('unknown combination')
+
+        if tick % args.inv_period == 0:
+            self.update_eigval_arrays()
+
         self.tick = self.tick + 1
 
     def actual_loss_classification(self, output, criterion):

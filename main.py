@@ -2,6 +2,7 @@ from __future__ import print_function
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import torchvision
 from torchvision import datasets, transforms
 from torch.optim.lr_scheduler import StepLR
 #import numpy as np
@@ -14,9 +15,44 @@ import numpy as np
 from utils.utils import save_files, get_file_suffix
 from utils import arguments
 from models import resnet
+from torch.utils.tensorboard import SummaryWriter
+
+class MyLogger:
+    def __init__(self, trainloader, model, suffix=''):
+        self.writer = SummaryWriter('runs/experiment'+suffix)
+        #images, labels = next(iter(trainloader))
+        #grid = torchvision.utils.make_grid(images)
+        #self.writer.add_image('images', grid, 0)
+        #self.writer.add_graph(model, images)
+
+    def __del__(self):
+        self.writer.close()
+
+    def log_train_loss(self, acc, loss, step):
+        self.writer.add_scalar('Loss/train', loss, step)
+        self.writer.add_scalar('Accuracy/train', acc, step)
+
+    def log_train_running_loss(self, loss, step):
+        self.writer.add_scalar('RunningLoss/train', loss, step)
 
 
-def train(args, model, device, train_loader, optimizer, criterion, epoch, train_loss_list, train_accuracy_list, cnn_model=False):
+    def log_test_loss(self, acc, loss, step):
+        self.writer.add_scalar('Loss/test', loss, step)
+        self.writer.add_scalar('Accuracy/test', acc, step)
+
+    def log_test_running_loss(self, loss, step):
+        self.writer.add_scalar('RunningLoss/test', loss,  step)
+
+    def log_eigvals(self, eigvals, layer_id, step):
+        logval=np.ma.log(eigvals)
+        logdet = np.sum(logval.filled(0))
+        trace = np.sum(eigvals)
+        self.writer.add_scalar('Logdet/Layer' + str(layer_id), logdet, step)
+        self.writer.add_scalar('Trace/Layer' + str(layer_id), trace, step)
+
+
+
+def train(args, model, device, train_loader, optimizer, criterion, epoch, batch_size, train_loss_list, train_accuracy_list, cnn_model=False, logger=None):
     model.train()
     running_loss = 0
     correct = 0
@@ -30,6 +66,8 @@ def train(args, model, device, train_loader, optimizer, criterion, epoch, train_
         output = model(data)
         pred = output.argmax(dim=1, keepdim=True)  # get the index of the max log-probability
         correct += pred.eq(target.view_as(pred)).sum().item()
+        total_iter = (batch_idx+1)*target.shape[0]
+        total_samples = len(train_loader.dataset)
 
         if isinstance(optimizer, NGD):
             model.maintain_fim(args, batch_idx, type_of_loss='classification', output=output, criterion=criterion) 
@@ -38,6 +76,8 @@ def train(args, model, device, train_loader, optimizer, criterion, epoch, train_
             running_loss += loss.item()
             optimizer.step(whitening_matrices=model.GSINV)
         else:
+            if args.fim_wo_optimization:
+                model.maintain_fim(args, batch_idx, type_of_loss='classification', output=output, criterion=criterion)
             loss = criterion(output, target)
             loss.backward()
             running_loss += loss.item()
@@ -49,21 +89,23 @@ def train(args, model, device, train_loader, optimizer, criterion, epoch, train_
             print('Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}'.format(
                 epoch, batch_idx * len(data), len(train_loader.dataset),
                 100. * batch_idx / len(train_loader), loss.item()))
+            logger.log_train_running_loss(running_loss / (batch_idx+1)*batch_size, batch_idx*batch_size + len(train_loader.dataset)*(epoch-1))
 
         #if batch_idx == 10:
         #    break
 
-
+    logger.log_train_loss(100. * correct / len(train_loader.dataset), running_loss/len(train_loader.dataset), epoch)
     train_loss_list.append(running_loss/len(train_loader.dataset))
     train_accuracy_list.append(100. * correct / len(train_loader.dataset))
 
 
-def test(model, device, test_loader, test_loss_list, accuracy_loss_list, cnn_model=False):
+def test(model, device, test_loader, test_loss_list, accuracy_loss_list, epoch, batch_size, cnn_model=False, logger=None):
     model.eval()
     test_loss = 0
     correct = 0
     with torch.no_grad():
-        for data, target in test_loader:
+        for batch_idx, (data, target) in enumerate(test_loader):
+            total_iter = (batch_idx+1)*target.shape[0]
             data, target = data.to(device), target.to(device)
             if not cnn_model:
                 data = torch.reshape(data, (data.shape[0], -1))
@@ -71,10 +113,14 @@ def test(model, device, test_loader, test_loss_list, accuracy_loss_list, cnn_mod
             test_loss += F.nll_loss(output, target, reduction='sum').item()  # sum up batch loss
             pred = output.argmax(dim=1, keepdim=True)  # get the index of the max log-probability
             correct += pred.eq(target.view_as(pred)).sum().item()
+            logger.log_test_running_loss(test_loss/((batch_idx+1)*batch_size), (epoch-1)*len(test_loader.dataset) + (batch_idx*batch_size))
+
+
 
     test_loss /= len(test_loader.dataset)
     test_loss_list.append(test_loss)
     accuracy_loss_list.append(100. * correct / len(test_loader.dataset))
+    logger.log_test_loss(100. * correct / len(test_loader.dataset), test_loss, epoch)
 
     print('\nTest set: Average loss: {:.4f}, Accuracy: {}/{} ({:.0f}%)\n'.format(
         test_loss, correct, len(test_loader.dataset),
@@ -162,15 +208,15 @@ def get_data_loader(args, kwargs):
         raise Exception('Unknown dataset = {}'.format(args.dataset))
     return train_loader, test_loader
 
-def get_model(args):
+def get_model(args, hook_enable=True, logger=None):
     if args.model == 'cnn':
-        model = CNN(args)
+        model = CNN(args, hook_enable=hook_enable, logger=logger)
         cnn_type=True
     elif args.model == 'mlp':
-        model = MLP(args)
+        model = MLP(args, hook_enable=hook_enable, logger=logger)
         cnn_type=False
     elif args.model == 'resnet18':
-        model = resnet.ResNet18(args)
+        model = resnet.ResNet18(args, hook_enable=hook_enable, logger=logger)
         cnn_type = True
     return model, cnn_type
 
@@ -189,6 +235,8 @@ def main(args=None):
         parser = arguments.argument_parser()
         args = parser.parse_args()
     print(args)
+    suffix = get_file_suffix(args)
+
     test_loss_list = []
     test_accuracy_list = []
     train_loss_list = []
@@ -211,20 +259,25 @@ def main(args=None):
 
     kwargs = {'num_workers': 1, 'pin_memory': True} if use_cuda else {}
 
-    model, cnn_type = get_model(args)
+    train_loader, test_loader = get_data_loader(args, kwargs)
+
+    model, cnn_type = get_model(args, hook_enable=False)
+    logger = MyLogger(train_loader, model, suffix=suffix)
+    model, cnn_type = get_model(args, hook_enable=True, logger=logger)
     model = model.to(device)
 
-    train_loader, test_loader = get_data_loader(args, kwargs)
+
+
     optimizer = select_optimizer(model, args.optimizer, args.lr)
     criterion = select_criterion(args)
     scheduler = StepLR(optimizer, step_size=1, gamma=args.gamma)
 
     for epoch in range(1, args.epochs + 1):
-        train(args, model, device, train_loader, optimizer, criterion, epoch, train_loss_list, train_accuracy_list, cnn_model=cnn_type)
-        test(model, device, test_loader,  test_loss_list, test_accuracy_list, cnn_model=cnn_type)
+        train(args, model, device, train_loader, optimizer, criterion, epoch, args.batch_size, train_loss_list, train_accuracy_list, cnn_model=cnn_type, logger=logger)
+        test(model, device, test_loader,  test_loss_list, test_accuracy_list, epoch, args.batch_size,  cnn_model=cnn_type, logger=logger)
         scheduler.step()
-        #model.epoch_bookkeeping()
-        #model.dump_eigval_arrays()
+        model.epoch_bookkeeping()
+        model.dump_eigval_arrays()
 
     plt.subplot(211)
     plt.plot(range(len(test_loss_list)), test_loss_list, 'r', label='test loss')
@@ -240,7 +293,7 @@ def main(args=None):
     plt.ylabel('Loss')
     plt.legend(loc=2, fontsize="small")
 
-    suffix = get_file_suffix(args)
+
 
     if args.save_model:
         torch.save(model.state_dict(), "mnist_cnn" + suffix + ".pt")
