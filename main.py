@@ -9,48 +9,14 @@ from torch.optim.lr_scheduler import StepLR
 import matplotlib.pyplot as plt
 from models.mlp_model import MLP
 from models.cnn_model import CNN
+from models.mlp_resnet import MLPResNet
 from core.ngd import NGD
 from core.ngd import select_optimizer#, maintain_fim
 import numpy as np
 from utils.utils import save_files, get_file_suffix
 from utils import arguments
 from models import resnet
-from torch.utils.tensorboard import SummaryWriter
-
-class MyLogger:
-    def __init__(self, trainloader, model, suffix=''):
-        self.writer = SummaryWriter('runs/experiment'+suffix)
-        #images, labels = next(iter(trainloader))
-        #grid = torchvision.utils.make_grid(images)
-        #self.writer.add_image('images', grid, 0)
-        #self.writer.add_graph(model, images)
-
-    def __del__(self):
-        self.writer.close()
-
-    def log_train_loss(self, acc, loss, step):
-        self.writer.add_scalar('Loss/train', loss, step)
-        self.writer.add_scalar('Accuracy/train', acc, step)
-
-    def log_train_running_loss(self, loss, step):
-        self.writer.add_scalar('RunningLoss/train', loss, step)
-
-
-    def log_test_loss(self, acc, loss, step):
-        self.writer.add_scalar('Loss/test', loss, step)
-        self.writer.add_scalar('Accuracy/test', acc, step)
-
-    def log_test_running_loss(self, loss, step):
-        self.writer.add_scalar('RunningLoss/test', loss,  step)
-
-    def log_eigvals(self, eigvals, layer_id, step):
-        logval=np.ma.log(eigvals)
-        logdet = np.sum(logval.filled(0))
-        trace = np.sum(eigvals)
-        self.writer.add_scalar('Logdet/Layer' + str(layer_id), logdet, step)
-        self.writer.add_scalar('Trace/Layer' + str(layer_id), trace, step)
-
-
+from logger import MyLogger
 
 def train(args, model, device, train_loader, optimizer, criterion, epoch, batch_size, train_loss_list, train_accuracy_list, cnn_model=False, logger=None):
     model.train()
@@ -125,9 +91,6 @@ def test(model, device, test_loader, test_loss_list, accuracy_loss_list, epoch, 
     print('\nTest set: Average loss: {:.4f}, Accuracy: {}/{} ({:.0f}%)\n'.format(
         test_loss, correct, len(test_loader.dataset),
         100. * correct / len(test_loader.dataset)))
-
-
-
 
 def mnist_loader(args, kwargs):
     train_loader = torch.utils.data.DataLoader(
@@ -215,9 +178,14 @@ def get_model(args, hook_enable=True, logger=None):
     elif args.model == 'mlp':
         model = MLP(args, hook_enable=hook_enable, logger=logger)
         cnn_type=False
+    elif args.model == 'mlp_resnet':
+        model = MLPResNet(args, hook_enable=hook_enable, logger=logger)
+        cnn_type=False
     elif args.model == 'resnet18':
         model = resnet.ResNet18(args, hook_enable=hook_enable, logger=logger)
         cnn_type = True
+    else:
+        raise Exception('Unknown Model')
     return model, cnn_type
 
 def select_criterion(args):
@@ -227,6 +195,10 @@ def select_criterion(args):
         criterion = nn.NLLLoss()
     elif args.model == 'resnet18':
         criterion = nn.CrossEntropyLoss()
+    elif args.model == 'mlp_resnet':
+        criterion = nn.NLLLoss()
+    else:
+        raise Exception('Unknown Model')
     return criterion
 
 def main(args=None):
