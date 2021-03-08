@@ -10,11 +10,11 @@ class MLP(ModelFIM):
         self.subspace_fraction = args.subspace_fraction
         self.use_cuda = not args.no_cuda and torch.cuda.is_available()
         self.device = torch.device("cuda" if self.use_cuda else "cpu")
-        self.linear1 = nn.Linear(784, 1024)
-        self.bn1 = nn.BatchNorm1d(1024)
-        self.linear2 = nn.Linear(1024, 2048)
-        self.bn2 = nn.BatchNorm1d(2048)
-        self.linear3 = nn.Linear(2048, 10)
+        self.linear1 = nn.Linear(784, 256)
+        self.bn1 = nn.BatchNorm1d(256)
+        self.linear2 = nn.Linear(256, 256)
+        self.bn2 = nn.BatchNorm1d(256)
+        self.linear3 = nn.Linear(256, 10)
         #self.dropout = nn.Dropout(0.2)
         super(MLP, self).common_init(args)
 

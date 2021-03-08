@@ -407,17 +407,29 @@ class ModelFIM(nn.Module):
     #     #    'X.shape = {}, GSINV[{}].shape = {}, inner_term.shape = {}'.format(X.shape, key, self.GSLOWERINV[key].shape,
     #     #                                                                       inner_term.shape))
     #     return GS
-    def matrix_inv_lemma(self, X, GS, device=None, alpha=0.9, key=None):
-        alpha= self.gamma * self.damping[key]
-        num_batches = X.shape[0]
-        GS = GS * (1 / alpha) #+ torch.eye(GS.shape[0], device=device) * 0.1
-        id_mat = torch.eye(num_batches, device=device) * (1 / (1 - alpha))
-        inner_term = id_mat + X @ GS @ X.T
-        xg = X @ GS
-        gx = GS @ X.T
-        GS = GS - gx @ torch.inverse(inner_term) @ xg
-        return GS
+    # def matrix_inv_lemma(self, X, GS, device=None, alpha=0.9, key=None):
+    #     alpha= self.gamma * self.damping[key]
+    #     alpha = 1
+    #     num_batches = X.shape[0]
+    #     GS = GS# * (1 / alpha) #+ torch.eye(GS.shape[0], device=device) * 0.1
+    #     id_mat = torch.eye(num_batches, device=device)# * (1 / (1 - alpha))
+    #     inner_term = id_mat + X @ GS @ X.T
+    #     xg = X @ GS
+    #     gx = GS @ X.T
+    #     GS = GS - gx @ torch.inverse(inner_term) @ xg
+    #     return GS
 
+    def matrix_inv_lemma(self, X, GS, device=None, alpha=0.99, key=None):
+        beta = 1 - alpha
+        beta2 = math.sqrt(beta)
+        num_batches = X.shape[1]
+        id_mat = torch.eye(num_batches, device=device)
+
+        inner_term = id_mat + (beta2 * X.T) @ (GS / alpha) @ (X * beta2)
+        gx = (1 / alpha * GS) @ (X * beta2)
+        xg = (beta2 * X.T) @ (GS * 1 / alpha)
+        GS = (1 / alpha) * GS - gx @ torch.inverse(inner_term) @ xg
+        return GS
 
     def test_matrix_inv_lemma(self):
         param = torch.normal(0, 1, size=(250, 64), device=self.device)
@@ -504,17 +516,18 @@ class ModelFIM(nn.Module):
 
 
     def get_invs_recursively(self):
+        self.get_damping_factor(self.GS)
         for item_no, (key, item) in enumerate(self.GS.items()):
             #XFULL = self.corr_curr[key]
             XFULL = self.params[key]
             #print('XFULL SHAPE = {}'.format(XFULL.shape))
-            self.GSINV[key] = self.matrix_inv_lemma(XFULL, self.GSINV[key], device=self.device, key=key)
+            self.GSINV[key] = self.matrix_inv_lemma(XFULL.T, self.GSINV[key], device=self.device, key=key)
 
     def get_invs_recursively_lower(self):
         for item_no, (key, item) in enumerate(self.GS.items()):
             XLOWER = self.corr_curr_lower_proj[key]
             #print('XLOWER SHAPE = {}'.format(XLOWER.shape))
-            self.GSLOWERINV[key] = self.matrix_inv_lemma(XLOWER, self.GSLOWERINV[key], device=self.device, key=key)
+            self.GSLOWERINV[key] = self.matrix_inv_lemma(XLOWER.T, self.GSLOWERINV[key], device=self.device, key=key)
             self.GSINV[key] = self.project_mtx_To_higher_space(self.GSLOWERINV[key], key)
 
 
@@ -549,10 +562,12 @@ class ModelFIM(nn.Module):
         tick = self.tick
 
         if args.inv_type == 'recursive' and args.subspace_fraction == 1:
-            #self.maintain_corr(params)
-            #self.maintain_avgs()
+            self.maintain_corr(params)
+            self.maintain_avgs()
             self.maintain_params(params)
             self.get_invs_recursively()
+            if tick % args.inv_period == 0:
+                self.get_inverses_direct()
             #else:
             #    self.maintain_corr(params)
             #    self.maintain_avgs()
