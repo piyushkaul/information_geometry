@@ -6,7 +6,7 @@ features = [784,1000,500,250,30]
 
 
 class Autoencoder(ModelFIM):
-    def __init__(self, args, init_from_rbm=False):
+    def __init__(self, args, init_from_rbm=False, hook_enable=True, logger=None):
         super(Autoencoder, self).__init__(args)
         self.encoder = nn.Sequential(
             nn.Linear(features[0], features[1]),
@@ -25,7 +25,7 @@ class Autoencoder(ModelFIM):
             nn.Sigmoid(),
             nn.Linear(features[1], features[0]),
             nn.Sigmoid())
-        super(Autoencoder, self).common_init(args)
+        super(Autoencoder, self).common_init(args, hook_enable=hook_enable, logger=logger)
         if init_from_rbm:
             self.init_from_rbm()
 

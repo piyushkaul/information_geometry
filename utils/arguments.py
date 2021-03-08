@@ -28,7 +28,7 @@ def argument_parser():
                         help='Optimizer to Use [sgd|adadelta|ngd]')
     parser.add_argument('--dataset', type=str, default='mnist',
                         help='Dataset to Use. [mnist|fashion_mnist]')
-    parser.add_argument('--subspace-fraction', type=float, default=0.1,
+    parser.add_argument('--subspace-fraction', type=float, default=1,
                         help='Fraction of Subspace to use for NGD 0 < frac < 1')
     parser.add_argument('--inv-period', type=int, default=50,
                         help='batches after which inverse is calculated')
@@ -40,6 +40,8 @@ def argument_parser():
                         help='Grid Search')
     parser.add_argument('--dump-eigenvalues', action='store_true', default=False,
                         help='Dump Eigenvalues')
+    parser.add_argument('--fim-wo-optimization', action='store_true', default=False,
+                        help='Fisher Analysis without Optimization')
 
 
     return parser
