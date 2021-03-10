@@ -17,6 +17,7 @@ from utils.utils import save_files, get_file_suffix
 from utils import arguments
 from models import resnet
 from logger import MyLogger
+import time
 
 def train(args, model, device, train_loader, optimizer, criterion, epoch, batch_size, train_loss_list, train_accuracy_list, cnn_model=False, logger=None):
     model.train()
@@ -35,19 +36,14 @@ def train(args, model, device, train_loader, optimizer, criterion, epoch, batch_
         total_iter = (batch_idx+1)*target.shape[0]
         total_samples = len(train_loader.dataset)
 
-        if isinstance(optimizer, NGD):
-            model.maintain_fim(args, batch_idx, type_of_loss='classification', output=output, criterion=criterion) 
-            loss = criterion(output, target)
-            loss.backward()
-            running_loss += loss.item()
-            optimizer.step(whitening_matrices=model.GSINV)
-        else:
-            if args.fim_wo_optimization:
-                model.maintain_fim(args, batch_idx, type_of_loss='classification', output=output, criterion=criterion)
-            loss = criterion(output, target)
-            loss.backward()
-            running_loss += loss.item()
-            optimizer.step()
+        #if isinstance(optimizer, NGD) or args.fim_wo_optimization:
+        if 'ngd' in args.optimizer or args.fim_wo_optimization:
+            model.maintain_fim(args, batch_idx, type_of_loss='classification', output=output, criterion=criterion)
+
+        loss = criterion(output, target)
+        loss.backward()
+        running_loss += loss.item()
+        optimizer.step()
         if np.isnan(loss.item()):
             raise Exception('Nan in loss')
 
@@ -201,6 +197,15 @@ def select_criterion(args):
         raise Exception('Unknown Model')
     return criterion
 
+class WallClock():
+
+    def __init__(self):
+        self.start_time = time.time()
+
+    def elapsed_time(self):
+        curr_time = time.time()
+        return curr_time - self.start_time
+
 def main(args=None):
     # Training settings
     if not args:
@@ -213,6 +218,7 @@ def main(args=None):
     test_accuracy_list = []
     train_loss_list = []
     train_accuracy_list = []
+    elapsed_time_list = []
     if torch.cuda.is_available():
         print('Cuda is available')
     else:
@@ -243,13 +249,17 @@ def main(args=None):
     optimizer = select_optimizer(model, args.optimizer, args.lr)
     criterion = select_criterion(args)
     scheduler = StepLR(optimizer, step_size=1, gamma=args.gamma)
+    wall_clock = WallClock()
 
+    elapsed_time_list.append(wall_clock.elapsed_time()) 
     for epoch in range(1, args.epochs + 1):
         train(args, model, device, train_loader, optimizer, criterion, epoch, args.batch_size, train_loss_list, train_accuracy_list, cnn_model=cnn_type, logger=logger)
         test(model, device, test_loader,  test_loss_list, test_accuracy_list, epoch, args.batch_size,  cnn_model=cnn_type, logger=logger)
+        elapsed_time_list.append(wall_clock.elapsed_time())
         scheduler.step()
-        model.epoch_bookkeeping()
-        model.dump_eigval_arrays()
+
+        #model.epoch_bookkeeping()
+        #model.dump_eigval_arrays()
 
     plt.subplot(211)
     plt.plot(range(len(test_loss_list)), test_loss_list, 'r', label='test loss')
@@ -277,9 +287,10 @@ def main(args=None):
     save_files(test_accuracy_list, 'test_accuracy', suffix)
     save_files(train_loss_list, 'train_loss', suffix)
     save_files(test_accuracy_list, 'train_accuracy', suffix)
-    print('Experiment Result : {}\tTest Acc = {}\tTest Loss={}\tTrain Acc ={}\tTrain Loss = {}\n'.format(suffix, test_accuracy_list[-1], test_loss_list[-1], train_accuracy_list[-1], train_loss_list[-1]))
+    save_files(elapsed_time_list, 'elapsed_time', suffix)
+    print('Experiment Result : {}\tTest Acc = {}\tTest Loss={}\tTrain Acc ={}\tTrain Loss = {}\tElapsed Time = {}\n'.format(suffix, test_accuracy_list[-1], test_loss_list[-1], train_accuracy_list[-1], train_loss_list[-1], elapsed_time_list[-1]))
     with open("summary_" + args.model + ".txt", "a") as fp_sum:
-        fp_sum.writelines(['Experiment : {}\tTest Acc = {}\tTest Loss={}\tTrain Acc ={}\tTrain Loss = {}\n'.format(suffix, test_accuracy_list[-1], test_loss_list[-1], train_accuracy_list[-1], train_loss_list[-1])])
+        fp_sum.writelines(['Experiment : {}\tTest Acc = {}\tTest Loss={}\tTrain Acc ={}\tTrain Loss = {}\tElapsed Time = {}\n'.format(suffix, test_accuracy_list[-1], test_loss_list[-1], train_accuracy_list[-1], train_loss_list[-1], elapsed_time_list[-1])])
 
 if __name__ == '__main__':
     parser = arguments.argument_parser()

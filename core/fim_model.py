@@ -39,6 +39,7 @@ class Hook():
             self.hook = module.register_backward_hook(self.hook_fn)
         self.name = name
 
+
     def print_tuple_or_tensor(self, tt, tag):
         #if tt is None:
         #    print('input is none')
@@ -135,6 +136,12 @@ class ModelFIM(nn.Module):
         self.subspace_fraction = args.subspace_fraction
         #self.GS = OrderedDict() #dummy here
         #self.common_init()
+
+    def get_whitening_matrices(self):
+        matrix_list = []
+        for key, val in self.GSINV.items():
+            matrix_list.append(val)
+        return matrix_list
 
     def register_hooks_(self, model, hookF, hookB):
         #print('register hooks called')

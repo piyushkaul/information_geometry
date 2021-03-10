@@ -1,19 +1,19 @@
-for opt in ngd 
+for opt in adam_ngd sgd_ngd
 do
-   for gamma in 0.99 0.9 0.8 0.6 
+   for gamma in 0.9 0.8 0.6 
    do
-        for lr in  0.1 0.05 0.01 0.005 0.001
+        for lr in  0.1 0.01  0.001
         do
-             for subspace_fraction in  1 0.5
+             for subspace_fraction in  1 
              do
-                   for inv_period in 50
+                   for inv_period in 50 500
                    do
                          for proj_period in 50
                          do
-                               for inv_type in direct 
+                               for inv_type in direct recursive
                                do
-                                     echo python mnist.py --gamma $gamma --lr $lr --optimizer $opt --subspace-fraction $subspace_fraction --inv-period $inv_period --proj-period $proj_period --inv-type $inv_type  --dataset fashion_mnist --epochs 100
-                                     python mnist.py --gamma $gamma --lr $lr --optimizer $opt --subspace-fraction $subspace_fraction --inv-period $inv_period --proj-period $proj_period --inv-type $inv_type --dataset fashion_mnist --epochs 100
+                                     echo python main.py --model mlp --gamma $gamma --lr $lr --optimizer $opt --subspace-fraction $subspace_fraction --inv-period $inv_period --proj-period $proj_period --inv-type $inv_type  --dataset fashion_mnist --epochs 15
+                                     python main.py --model mlp --gamma $gamma --lr $lr --optimizer $opt --subspace-fraction $subspace_fraction --inv-period $inv_period --proj-period $proj_period --inv-type $inv_type --dataset fashion_mnist --epochs 15
                               done
                          done
                     done
@@ -22,14 +22,14 @@ do
    done                                                                                                                                                                                                                          
 done
 
-for opt in sgd 
+for opt in sgd adam
 do
-   for gamma in 0.99 0.9 0.8 0.6 
+   for gamma in  0.9 0.8 0.6 
    do
-        for lr in  0.1 0.05 0.01 0.005 0.001
+        for lr in  0.1  0.01 0.001
         do
-                                     echo python mnist.py --gamma $gamma --lr $lr --optimizer $opt  --dataset fashion_mnist --epochs 100
-                                     python mnist.py --gamma $gamma --lr $lr --optimizer $opt --dataset fashion_mnist --epochs 100
+                                     echo python main.py --model mlp  --gamma $gamma --lr $lr --optimizer $opt  --dataset fashion_mnist --epochs 15
+                                     python main.py --model mlp --gamma $gamma --lr $lr --optimizer $opt --dataset fashion_mnist --epochs 15
         done
    done                                                                                                                                                                                                                          
 done
