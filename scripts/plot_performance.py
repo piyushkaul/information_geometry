@@ -8,10 +8,13 @@ prefixes=['elapsed_time', 'test_accuracy', 'train_accuracy', 'train_loss', 'test
 suffix='2021_03_11_01_32_01_adam_ngd_lr_0.1_gamma_0.9_frac_1.0_fashion_mnist_direct_inv_period_50_proj_period_50_model_mlp_epochs_15_batch_size_64txt'
 suffix='2021_03_11_14_45_57_adam_ngd_lr_0.01_gamma_0.9_frac_1.0_fashion_mnist_direct_inv_period_500_proj_period_50_model_mlp_epochs_15_batch_size_64txt'
 
-suffixes=[#'2021_03_12_01_40_24_adam_lr_0.001_gamma_0.8_frac_1_fashion_mnist_direct_inv_period_50_proj_period_50_model_mlp_epochs_15_batch_size_64txt',
+suffixes=['2021_03_12_01_40_24_adam_lr_0.001_gamma_0.8_frac_1_fashion_mnist_direct_inv_period_50_proj_period_50_model_mlp_epochs_15_batch_size_64txt',
           #'2021_03_11_18_10_03_adam_ngd_lr_0.001_gamma_0.8_frac_1.0_fashion_mnist_recursive_inv_period_50_proj_period_50_model_mlp_epochs_15_batch_size_64txt',
           '2021_03_12_10_50_58_adam_ngd_lr_0.001_gamma_0.8_frac_1.0_fashion_mnist_direct_inv_period_1_proj_period_1_model_mlp_epochs_15_batch_size_64txt',
-          '2021_03_12_11_53_10_adam_ngd_lr_0.001_gamma_0.8_frac_1.0_fashion_mnist_recursive_inv_period_500_proj_period_500_model_mlp_epochs_15_batch_size_64txt']
+          '2021_03_12_11_53_10_adam_ngd_lr_0.001_gamma_0.8_frac_1.0_fashion_mnist_recursive_inv_period_500_proj_period_500_model_mlp_epochs_15_batch_size_64txt',
+           '2021_03_12_19_30_26_adam_ngd_lr_0.001_gamma_0.8_frac_0.95_fashion_mnist_direct_inv_period_50_proj_period_50_model_mlp_epochs_15_batch_size_64txt',
+          '2021_03_12_20_06_20_sgd_lr_0.1_gamma_0.8_frac_1.0_fashion_mnist_direct_inv_period_50_proj_period_50_model_mlp_epochs_15_batch_size_64txt'
+          ]
 
 params = {}
 for suffix in suffixes:

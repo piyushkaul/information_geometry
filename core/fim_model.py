@@ -464,6 +464,15 @@ class ModelFIM(nn.Module):
             else:
                 self.params[key] = params[item_no].clone()
 
+
+    def maintain_params_lower(self, params):
+        for item_no, (key, item) in enumerate(self.GS.items()):
+            if item_no%2 == 0:
+                self.params[key] = params[item_no].clone() / np.sqrt(params[item_no].shape[0])
+            else:
+                self.params[key] = params[item_no].clone()
+
+
     def maintain_corr(self, params):
         #self.track_gs('maintain_corr before')
 
@@ -582,17 +591,15 @@ class ModelFIM(nn.Module):
             self.get_invs_recursively()
             if tick % args.inv_period == 0:
                 self.get_inverses_direct()
-            #else:
-            #    self.maintain_corr(params)
-            #    self.maintain_avgs()
-            #    if tick % args.inv_period == 0:
-            #        self.get_inverses_direct()
-            #        print('direct inverse calculated')
-           
+
         elif args.inv_type == 'recursive' and args.subspace_fraction < 1:
             self.maintain_corr_lower(params)
-            if True:#tick % args.inv_period == 0:
-                self.get_invs_recursively_lower()
+            self.maintain_avgs_lower()
+            self.maintain_params(params)
+            self.get_invs_recursively_lower()
+            if tick % args.inv_period == 0:
+                self.get_inverses_direct_lower()
+
         elif args.inv_type == 'direct' and args.subspace_fraction == 1:
             self.maintain_corr(params)
             self.maintain_avgs()
