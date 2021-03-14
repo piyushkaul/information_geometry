@@ -123,8 +123,8 @@ class ResNet(ModelFIM):
         return out
 
 
-def ResNet18(args=None):
-    return ResNet(BasicBlock, [2, 2, 2, 2], args=args)
+def ResNet18(args=None,  hook_enable=False, logger=None):
+    return ResNet(BasicBlock, [2, 2, 2, 2], args=args, hook_enable=hook_enable, logger=logger)
 
 
 def ResNet34(args=None):

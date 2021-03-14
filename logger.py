@@ -10,6 +10,7 @@ class MyLogger:
         #self.writer.add_graph(model, images)
 
     def __del__(self):
+        self.writer.flush()
         self.writer.close()
 
     def log_train_loss(self, acc, loss, step):

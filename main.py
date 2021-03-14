@@ -18,6 +18,7 @@ from utils import arguments
 from models import resnet
 from logger import MyLogger
 import time
+import os
 
 def train(args, model, device, train_loader, optimizer, criterion, epoch, batch_size, train_loss_list, train_accuracy_list, cnn_model=False, logger=None):
     model.train()
@@ -297,6 +298,8 @@ if __name__ == '__main__':
     args = parser.parse_args()
     if not args.grid_search:
         main(args)
+        os._exit(os.EX_OK)
+
     else:
         for model_type in ['cnn', 'mlp']:
             for gamma in [0.8, 0.7]:
