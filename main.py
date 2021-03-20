@@ -15,12 +15,12 @@ from core.ngd import select_optimizer#, maintain_fim
 import numpy as np
 from utils.utils import save_files, get_file_suffix
 from utils import arguments
+from utils.wall_clock import WallClock
 from models import resnet
 from logger import MyLogger
-import time
 import os
 
-def train(args, model, device, train_loader, optimizer, criterion, epoch, batch_size, train_loss_list, train_accuracy_list, cnn_model=False, logger=None):
+def train(args, model, device, train_loader, optimizer, criterion, epoch, batch_size, train_loss_list, train_accuracy_list, cnn_model=False, logger=None, lr=1):
     model.train()
     running_loss = 0
     correct = 0
@@ -39,7 +39,7 @@ def train(args, model, device, train_loader, optimizer, criterion, epoch, batch_
 
         #if isinstance(optimizer, NGD) or args.fim_wo_optimization:
         if 'ngd' in args.optimizer or args.fim_wo_optimization:
-            model.maintain_fim(args, batch_idx, type_of_loss='classification', output=output, criterion=criterion)
+            model.maintain_fim(args, batch_idx, type_of_loss='classification', output=output, criterion=criterion, lr=lr)
 
         loss = criterion(output, target)
         loss.backward()
@@ -198,14 +198,6 @@ def select_criterion(args):
         raise Exception('Unknown Model')
     return criterion
 
-class WallClock():
-
-    def __init__(self):
-        self.start_time = time.time()
-
-    def elapsed_time(self):
-        curr_time = time.time()
-        return curr_time - self.start_time
 
 def main(args=None):
     # Training settings
@@ -252,12 +244,13 @@ def main(args=None):
     scheduler = StepLR(optimizer, step_size=1, gamma=args.gamma)
     wall_clock = WallClock()
 
-    elapsed_time_list.append(wall_clock.elapsed_time()) 
+    lr=scheduler.get_last_lr()
     for epoch in range(1, args.epochs + 1):
-        train(args, model, device, train_loader, optimizer, criterion, epoch, args.batch_size, train_loss_list, train_accuracy_list, cnn_model=cnn_type, logger=logger)
+        train(args, model, device, train_loader, optimizer, criterion, epoch, args.batch_size, train_loss_list, train_accuracy_list, cnn_model=cnn_type, logger=logger, lr=lr)
         test(model, device, test_loader,  test_loss_list, test_accuracy_list, epoch, args.batch_size,  cnn_model=cnn_type, logger=logger)
         elapsed_time_list.append(wall_clock.elapsed_time())
         scheduler.step()
+        lr=scheduler.get_last_lr()
 
         #model.epoch_bookkeeping()
         #model.dump_eigval_arrays()
@@ -297,8 +290,12 @@ if __name__ == '__main__':
     parser = arguments.argument_parser()
     args = parser.parse_args()
     if not args.grid_search:
+        #try:
         main(args)
         os._exit(os.EX_OK)
+        #except:
+        #    print('Exception thrown')
+        #    os._exit(os.EX_OK)
 
     else:
         for model_type in ['cnn', 'mlp']:

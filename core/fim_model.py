@@ -434,7 +434,7 @@ class ModelFIM(nn.Module):
     #     GS = GS - gx @ torch.inverse(inner_term) @ xg
     #     return GS
 
-    def matrix_inv_lemma(self, X, GS, device=None, alpha=0.99, key=None):
+    def matrix_inv_lemma(self, X, GS, device=None, alpha=0.99, key=None, lr=1):
         beta = 1 - alpha
         beta2 = math.sqrt(beta)
         num_batches = X.shape[1]
@@ -443,7 +443,7 @@ class ModelFIM(nn.Module):
         inner_term = id_mat + (beta2 * X.T) @ (GS / alpha) @ (X * beta2)
         gx = (1 / alpha * GS) @ (X * beta2)
         xg = (beta2 * X.T) @ (GS * 1 / alpha)
-        GS = (1 / alpha) * GS - gx @ torch.inverse(inner_term) @ xg
+        GS = (1 / alpha) * GS - gx @ torch.inverse(inner_term) @ xg #+ (1+np.sqrt(lr[0]))* torch.eye(GS.shape[0], device=device)
         return GS
 
     def test_matrix_inv_lemma(self):
@@ -539,19 +539,19 @@ class ModelFIM(nn.Module):
             self.P[key] = eigvec_subspace
 
 
-    def get_invs_recursively(self):
+    def get_invs_recursively(self, lr):
         self.get_damping_factor(self.GS)
         for item_no, (key, item) in enumerate(self.GS.items()):
             #XFULL = self.corr_curr[key]
             XFULL = self.params[key]
             #print('XFULL SHAPE = {}'.format(XFULL.shape))
-            self.GSINV[key] = self.matrix_inv_lemma(XFULL.T, self.GSINV[key], device=self.device, key=key)
+            self.GSINV[key] = self.matrix_inv_lemma(XFULL.T, self.GSINV[key], device=self.device, key=key, lr=lr)
 
-    def get_invs_recursively_lower(self):
+    def get_invs_recursively_lower(self, lr):
         for item_no, (key, item) in enumerate(self.GS.items()):
             XLOWER = self.corr_curr_lower_proj[key]
             #print('XLOWER SHAPE = {}'.format(XLOWER.shape))
-            self.GSLOWERINV[key] = self.matrix_inv_lemma(XLOWER.T, self.GSLOWERINV[key], device=self.device, key=key)
+            self.GSLOWERINV[key] = self.matrix_inv_lemma(XLOWER.T, self.GSLOWERINV[key], device=self.device, key=key, lr=lr)
             self.GSINV[key] = self.project_mtx_To_higher_space(self.GSLOWERINV[key], key)
 
 
@@ -581,14 +581,14 @@ class ModelFIM(nn.Module):
             GSPROJINV = torch.inverse(self.GSLOWER[key] + torch.eye(self.GSLOWER[key].shape[0], device=self.device) * self.gamma * self.damping[key])
             self.GSINV[key] = self.project_mtx_To_higher_space(GSPROJINV, key)
 
-    def maintain_invs(self, params, args):
+    def maintain_invs(self, params, args, lr=1):
         tick = self.tick
 
         if args.inv_type == 'recursive' and args.subspace_fraction == 1:
             self.maintain_corr(params)
             self.maintain_avgs()
             self.maintain_params(params)
-            self.get_invs_recursively()
+            self.get_invs_recursively(lr)
             if tick % args.inv_period == 0:
                 self.get_inverses_direct()
 
@@ -596,7 +596,7 @@ class ModelFIM(nn.Module):
             self.maintain_corr_lower(params)
             self.maintain_avgs_lower()
             self.maintain_params(params)
-            self.get_invs_recursively_lower()
+            self.get_invs_recursively_lower(lr)
             if tick % args.inv_period == 0:
                 self.get_inverses_direct_lower()
 
@@ -629,7 +629,7 @@ class ModelFIM(nn.Module):
         loss = criterion(output, output)
         loss.backward(retain_graph=True)
 
-    def maintain_fim(self, args, batch_idx, type_of_loss=False, output=None, criterion=None):
+    def maintain_fim(self, args, batch_idx, type_of_loss=False, output=None, criterion=None, lr=1):
         if type_of_loss:
             if type_of_loss == 'classification':
                 self.actual_loss_classification(output,criterion)
@@ -637,6 +637,6 @@ class ModelFIM(nn.Module):
                 self.actual_loss_mse(output, criterion)
           
         params = self.get_grads()
-        self.maintain_invs(params, args)
+        self.maintain_invs(params, args, lr=lr)
         if batch_idx % args.proj_period == 0:
             self.projection_matrix_update(params)

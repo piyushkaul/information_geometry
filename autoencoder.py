@@ -13,6 +13,7 @@ from torch.optim.lr_scheduler import StepLR
 from utils import arguments
 from utils import utils
 from logger import MyLogger
+from utils.wall_clock import WallClock
 import numpy as np
 
 if not os.path.exists('./mlp_img'):
@@ -62,7 +63,7 @@ test_dataset = MNIST('./data', transform=img_transform, download=True, train=Fal
 train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, )
 test_dataloader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
 
-use_cuda = False
+use_cuda = True
 suffix = utils.get_file_suffix(args)
 device = torch.device("cuda" if use_cuda else "cpu")
 model = Autoencoder(args, init_from_rbm=True).to(device)
@@ -75,6 +76,7 @@ scheduler = StepLR(optimizer, step_size=1, gamma=args.gamma)
 
 loss_list = []
 MSE_loss_list = []
+elapsed_time_list = []
 
 
 def loss_backprop(output, img, criterion, optimizer):
@@ -167,7 +169,7 @@ class LossMetric:
         self.logger.log_ae_running_loss(loss.item(), epoch, tag=self.tag)
         self.logger.log_ae_running_mse_loss(MSE_loss.item(), epoch, tag=self.tag)
 
-
+wall_clock = WallClock()
 for epoch in range(num_epochs):
     batch_idx = 0
     train_metric = LossMetric(tag='train', logger=logger)
@@ -180,6 +182,7 @@ for epoch in range(num_epochs):
         loss, MSE_loss = backprop_and_optimize(model, args, batch_idx, output, criterion, optimizer)
         batch_idx = batch_idx + 1
         train_metric.update(loss, MSE_loss, batch_idx * batch_size)
+        
 
     # scheduler.step()
     # optimizer.step()
@@ -208,10 +211,13 @@ for epoch in range(num_epochs):
         test_metric.update(test_loss, test_MSE_loss, test_batch_idx * batch_size)
 
     test_metric.log()
+    elapsed_time_list.append(wall_clock.elapsed_time())
 
 utils.save_files(loss_list, 'loss', suffix)
 utils.save_files(MSE_loss_list, 'MSE_loss', suffix)
+utils.save_files(elapsed_time_list, 'elapsed_time', suffix)
 with open("summary_autoencoder.txt", "a") as fp_sum:
-    fp_sum.writelines(['Experiment : {}\tLoss = {}\tMSE Loss={}\n'.format(suffix, loss_list[-1], MSE_loss_list[-1])])
+    fp_sum.writelines(['Experiment : {}\tLoss = {}\tMSE Loss={}\tElapsed Time = {}\n'.format(suffix, loss_list[-1], MSE_loss_list[-1], elapsed_time_list[-1])])
 
 torch.save(model.state_dict(), './sim_autoencoder.pth')
+os._exit(os.EX_OK)
