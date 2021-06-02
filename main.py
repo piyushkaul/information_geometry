@@ -19,6 +19,7 @@ from utils.wall_clock import WallClock
 from models import resnet
 from logger import MyLogger
 import os
+from core.fim_model import Hook
 
 def train(args, model, device, train_loader, optimizer, criterion, epoch, batch_size, train_loss_list, train_accuracy_list, cnn_model=False, logger=None, lr=1):
     model.train()
@@ -31,6 +32,7 @@ def train(args, model, device, train_loader, optimizer, criterion, epoch, batch_
             data = torch.reshape(data, (data.shape[0], -1))
         #print('data size = {}, target size = {}'.format(data.shape, target.shape))
         optimizer.zero_grad()
+        Hook.enable_all_hooks()
         output = model(data)
         pred = output.argmax(dim=1, keepdim=True)  # get the index of the max log-probability
         correct += pred.eq(target.view_as(pred)).sum().item()
@@ -40,6 +42,7 @@ def train(args, model, device, train_loader, optimizer, criterion, epoch, batch_
         #if isinstance(optimizer, NGD) or args.fim_wo_optimization:
         if 'ngd' in args.optimizer or args.fim_wo_optimization:
             model.maintain_fim(args, batch_idx, type_of_loss='classification', output=output, criterion=criterion, lr=lr)
+            Hook.disable_all_hooks()
 
         loss = criterion(output, target)
         loss.backward()

@@ -39,6 +39,13 @@ class Hook():
             self.hook = module.register_backward_hook(self.hook_fn)
         self.name = name
 
+    @classmethod
+    def disable_all_hooks(cls):
+        cls.enable = False
+
+    @classmethod
+    def enable_all_hooks(cls):
+        cls.enable = True
 
     def print_tuple_or_tensor(self, tt, tag):
         #if tt is None:
@@ -76,26 +83,26 @@ class Hook():
         #self.print_tuple_or_tensor(input, self.name + '_input')
         #self.print_tuple_or_tensor(output,  self.name + '_output')
 
+        if not Hook.enable:
+            return
+
         if self.backward == False:
-            param = self.get_first_element( input, self.fwd_index_in)
-            #self.output = self.get_first_element( output, self.fwd_index_out)
+            param = self.get_first_element(input, self.fwd_index_in)
         else:
-            #self.input = self.get_first_element( input, self.back_index_in)
-            param = self.get_first_element( output, self.back_index_out)
+            param = self.get_first_element(output, self.back_index_out)
 
         if self.module_type == 'Conv2d' and self.backward == False:
             kernel_size = self.kernel_size
             padding = self.padding
             stride = self.stride
-            #reduced_param = im2col_indices(param, kernel_size[0], kernel_size[1], padding[0], stride[0])
-            reduced_param = torch.nn.functional.unfold(param, (kernel_size[0], kernel_size[1]), stride=1)
+            reduced_param = torch.nn.functional.unfold(param, (kernel_size[0], kernel_size[1]), stride=stride)
             reduced_param = reduced_param.transpose(1, 2)
             reduced_param = reduced_param.reshape(-1, reduced_param.shape[-1])
             #reduced_param = reduced_param.T
-            self.spatial_sizes = 1.0/(param.shape[2] * param.shape[3])
-            self.batch_sizes = param.shape[0]
+            #self.spatial_sizes = 1.0/(param.shape[2] * param.shape[3])
+            #self.batch_sizes = param.shape[0]
             #reduced_param = 1/float(reduced_param.shape[0]) * np.sum(reduced_param, axis=0, keepdims=True)
-            num_samples = min(reduced_param.shape[0], 200)
+            num_samples = min(reduced_param.shape[0], 2000)
             random_samples = torch.randint(0, reduced_param.shape[0], (num_samples,))
             reduced_param =  reduced_param[random_samples, :]
         elif self.module_type == 'Conv2d' and self.backward == True:
@@ -103,10 +110,10 @@ class Hook():
             reduced_param = param.permute(1,0,2,3)
             reduced_param = torch.reshape(reduced_param, (sz[1],-1))
             reduced_param = reduced_param.T
-            self.spatial_sizes = (param.shape[2] * param.shape[3])
-            self.batch_sizes = reduced_param.shape[0]
+            #self.spatial_sizes = (param.shape[2] * param.shape[3])
+            #self.batch_sizes = reduced_param.shape[0]
             #reduced_param = 1/float(reduced_param.shape[0]) * np.sum(reduced_param,axis=0, keepdims=True)
-            num_samples = min(reduced_param.shape[0], 200)
+            num_samples = min(reduced_param.shape[0], 2000)
             random_samples = torch.randint(0, reduced_param.shape[0], (num_samples,))
             reduced_param =  reduced_param[random_samples, :]
 
@@ -210,8 +217,8 @@ class ModelFIM(nn.Module):
             self.corr_curr[key] = None
             self.corr_curr_lower_proj[key] = None
             self.corr_curr_lower[key] = None
-            self.spatial_sizes[key] = 1
-            self.batch_sizes[key] = 1
+            #self.spatial_sizes[key] = 1
+            #self.batch_sizes[key] = 1
             self.damping[key] = 1
             self.params[key] = None
             if item_no%2==0:
@@ -435,6 +442,7 @@ class ModelFIM(nn.Module):
     #     return GS
 
     def matrix_inv_lemma(self, X, GS, device=None, alpha=0.99, key=None, lr=1):
+        alpha = alpha * lr
         beta = 1 - alpha
         beta2 = math.sqrt(beta)
         num_batches = X.shape[1]
@@ -552,6 +560,7 @@ class ModelFIM(nn.Module):
             XLOWER = self.corr_curr_lower_proj[key]
             #print('XLOWER SHAPE = {}'.format(XLOWER.shape))
             self.GSLOWERINV[key] = self.matrix_inv_lemma(XLOWER.T, self.GSLOWERINV[key], device=self.device, key=key, lr=lr)
+
             self.GSINV[key] = self.project_mtx_To_higher_space(self.GSLOWERINV[key], key)
 
 
@@ -578,26 +587,40 @@ class ModelFIM(nn.Module):
     def get_inverses_direct_lower(self):
         self.get_damping_factor(self.GSLOWER)
         for item_no, (key, item) in enumerate(self.GS.items()):
+            '''
+            eps = 1e-10
+            eigval, eigvec = torch.symeig(self.GSLOWER[key], eigenvectors=True)
+            med_eig = torch.median(eigval)
+            eigval[eigval < eps] = eps
+            self.GSLOWER[key] = eigvec @ torch.diag(eigval) @ eigvec.T
+            '''
             GSPROJINV = torch.inverse(self.GSLOWER[key] + torch.eye(self.GSLOWER[key].shape[0], device=self.device) * self.gamma * self.damping[key])
             self.GSINV[key] = self.project_mtx_To_higher_space(GSPROJINV, key)
 
     def maintain_invs(self, params, args, lr=1):
         tick = self.tick
+        lr = 1
 
         if args.inv_type == 'recursive' and args.subspace_fraction == 1:
             self.maintain_corr(params)
             self.maintain_avgs()
             self.maintain_params(params)
-            self.get_invs_recursively(lr)
-            if tick % args.inv_period == 0:
+
+            if tick % args.inv_period == 0 and tick > 0:
+                print('tick = {}'.format(self.tick))
+                self.get_invs_recursively(lr)
+            if tick % (args.inv_period*50) and tick > 0:
                 self.get_inverses_direct()
 
         elif args.inv_type == 'recursive' and args.subspace_fraction < 1:
             self.maintain_corr_lower(params)
             self.maintain_avgs_lower()
             self.maintain_params(params)
-            self.get_invs_recursively_lower(lr)
-            if tick % args.inv_period == 0:
+            if tick % (args.inv_period//10) == 0 and tick > 0:
+                print('tick rec = {}'.format(self.tick))
+                self.get_invs_recursively_lower(lr)
+            if tick % (args.inv_period*100//10) == 0 and tick > 0:
+                print('tick inv = {}'.format(self.tick))
                 self.get_inverses_direct_lower()
 
         elif args.inv_type == 'direct' and args.subspace_fraction == 1:
@@ -605,6 +628,7 @@ class ModelFIM(nn.Module):
             self.maintain_avgs()
             if tick % args.inv_period == 0:
                 self.get_inverses_direct()
+
         elif args.inv_type == 'direct' and args.subspace_fraction < 1:
             self.maintain_corr_lower(params)
             self.maintain_avgs_lower()
@@ -634,6 +658,8 @@ class ModelFIM(nn.Module):
             if type_of_loss == 'classification':
                 self.actual_loss_classification(output,criterion)
             elif type_of_loss == 'autoencoder':
+                self.actual_loss_mse(output, criterion)
+            elif type_of_loss == 'superresolution':
                 self.actual_loss_mse(output, criterion)
           
         params = self.get_grads()
